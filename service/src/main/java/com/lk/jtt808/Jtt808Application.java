@@ -9,7 +9,7 @@ import org.springframework.scheduling.annotation.EnableAsync;
 @EnableAsync
 public class Jtt808Application {
 
-    public static void main(String[] args) {
+    static void main(String[] args) {
         SpringApplication.run(Jtt808Application.class, args);
     }
 
