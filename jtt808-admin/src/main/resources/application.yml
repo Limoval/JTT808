@@ -1,0 +1,228 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: jtt808-admin
+  profiles:
+    active: dev
+
+  # 数据库配置
+  datasource:
+    type: com.alibaba.druid.pool.DruidDataSource
+    druid:
+      driver-class-name: com.mysql.cj.jdbc.Driver
+      url: jdbc:mysql://localhost:3306/jtt808?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai
+      username: root
+      password: password
+      initial-size: 5
+      min-idle: 5
+      max-active: 20
+      max-wait: 60000
+      time-between-eviction-runs-millis: 60000
+      min-evictable-idle-time-millis: 300000
+      validation-query: SELECT 1
+      test-while-idle: true
+      test-on-borrow: false
+      test-on-return: false
+      pool-prepared-statements: true
+      max-pool-prepared-statement-per-connection-size: 20
+      filters: stat,wall
+      web-stat-filter:
+        enabled: true
+        url-pattern: /*
+        exclusions: "*.js,*.gif,*.jpg,*.bmp,*.png,*.css,*.ico,/druid/*"
+      stat-view-servlet:
+        enabled: true
+        url-pattern: /druid/*
+        login-username: admin
+        login-password: admin
+
+  # Redis配置
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      password:
+      database: 0
+      timeout: 10s
+      lettuce:
+        pool:
+          max-active: 8
+          max-wait: -1ms
+          max-idle: 8
+          min-idle: 0
+
+  # Nacos配置
+  cloud:
+    nacos:
+      discovery:
+        server-addr: localhost:8848
+        enabled: false  # 暂时关闭Nacos，等部署时再开启
+        service: jtt808-admin
+        namespace: public
+        group: DEFAULT_GROUP
+        weight: 1
+      config:
+        server-addr: localhost:8848
+        enabled: false  # 暂时关闭Nacos
+        file-extension: yml
+        namespace: public
+        group: DEFAULT_GROUP
+
+  # Jackson配置
+  jackson:
+    date-format: yyyy-MM-dd HH:mm:ss
+    time-zone: Asia/Shanghai
+    serialization:
+      write-dates-as-timestamps: false
+    deserialization:
+      fail-on-unknown-properties: false
+
+# MyBatis Plus配置
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl
+  global-config:
+    db-config:
+      id-type: auto
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+  mapper-locations: classpath:mapper/*.xml
+  type-aliases-package: com.lk.jtt808.common.entity
+
+# Feign配置
+feign:
+  httpclient:
+    enabled: true
+    max-connections: 200
+    max-connections-per-route: 50
+  client:
+    config:
+      default:
+        connectTimeout: 5000
+        readTimeout: 10000
+        loggerLevel: basic
+
+# 日志配置
+logging:
+  level:
+    com.lk.jtt808: DEBUG
+    org.springframework: INFO
+    com.alibaba.druid: INFO
+    org.mybatis: INFO
+    feign: DEBUG
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{50} - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{50} - %msg%n"
+  file:
+    name: logs/jtt808-admin.log
+    max-size: 100MB
+    max-history: 30
+
+# 监控配置
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: always
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+
+# Swagger配置（可选）
+springdoc:
+  api-docs:
+    enabled: true
+    path: /api-docs
+  swagger-ui:
+    enabled: true
+    path: /swagger-ui.html
+    operations-sorter: method
+    tags-sorter: alpha
+
+# 自定义配置
+app:
+  # 设备服务配置
+  device-service:
+    name: jtt808-device
+    context-path: /api
+
+  # 分页配置
+  page:
+    default-size: 20
+    max-size: 100
+
+---
+# 开发环境配置
+spring:
+  profiles: dev
+  datasource:
+    druid:
+      url: jdbc:mysql://localhost:3306/jtt808?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai
+  data:
+    redis:
+      host: localhost
+
+# Swagger在开发环境开启
+springdoc:
+  api-docs:
+    enabled: true
+  swagger-ui:
+    enabled: true
+
+---
+# 测试环境配置
+spring:
+  profiles: test
+  datasource:
+    druid:
+      url: jdbc:mysql://test-mysql:3306/jtt808?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai
+  data:
+    redis:
+      host: test-redis
+
+# Swagger在测试环境开启
+springdoc:
+  api-docs:
+    enabled: true
+  swagger-ui:
+    enabled: true
+
+---
+# 生产环境配置
+spring:
+  profiles: prod
+  datasource:
+    druid:
+      url: jdbc:mysql://prod-mysql:3306/jtt808?useUnicode=true&characterEncoding=utf8&useSSL=true&serverTimezone=Asia/Shanghai
+  data:
+    redis:
+      host: prod-redis
+      password: ${REDIS_PASSWORD}
+
+  # 生产环境开启Nacos
+  cloud:
+    nacos:
+      discovery:
+        enabled: true
+      config:
+        enabled: true
+
+# Swagger在生产环境关闭
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
+
+# 生产环境日志级别调整
+logging:
+  level:
+    com.lk.jtt808: INFO
+    feign: INFO
