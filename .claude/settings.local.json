@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mvn dependency:tree:*)",
+      "Bash(mvn clean compile:*)",
+      "Bash(java:*)",
+      "Bash(\"C:\\\\Development\\\\Java\\\\25\\\\bin\\\\java.exe\":*)",
+      "Bash(export:*)",
+      "Bash(timeout:*)",
+      "Bash(find:*)",
+      "Bash(set \"JAVA_HOME=C:\\\\Development\\\\Java\\\\25\")",
+      "Bash(\"C:\\\\Development\\\\Java\\\\25\\\\bin\\\\java.exe\" -version)",
+      "Bash(cmd /c \"set JAVA_HOME=C:\\\\Development\\\\Java\\\\25 && mvn clean compile -DskipTests\")",
+      "Bash($env:JAVA_HOME=\"C:\\\\Development\\\\Java\\\\25\")"
+    ]
+  }
+}

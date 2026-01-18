@@ -1,0 +1,190 @@
+server:
+  port: 8081
+
+spring:
+  application:
+    name: jtt808-device
+  profiles:
+    active: dev
+
+  # 数据库配置
+  datasource:
+    type: com.alibaba.druid.pool.DruidDataSource
+    druid:
+      driver-class-name: com.mysql.cj.jdbc.Driver
+      url: jdbc:mysql://localhost:3306/jtt808?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai
+      username: root
+      password: password
+      initial-size: 5
+      min-idle: 5
+      max-active: 20
+      max-wait: 60000
+      time-between-eviction-runs-millis: 60000
+      min-evictable-idle-time-millis: 300000
+      validation-query: SELECT 1
+      test-while-idle: true
+      test-on-borrow: false
+      test-on-return: false
+      pool-prepared-statements: true
+      max-pool-prepared-statement-per-connection-size: 20
+      filters: stat,wall
+      connection-properties: druid.stat.mergeSql=true;druid.stat.slowSqlMillis=5000
+      web-stat-filter:
+        enabled: true
+        url-pattern: /*
+        exclusions: "*.js,*.gif,*.jpg,*.bmp,*.png,*.css,*.ico,/druid/*"
+      stat-view-servlet:
+        enabled: true
+        url-pattern: /druid/*
+        login-username: admin
+        login-password: admin
+
+  # Redis配置
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      password:
+      database: 0
+      timeout: 10s
+      lettuce:
+        pool:
+          max-active: 8
+          max-wait: -1ms
+          max-idle: 8
+          min-idle: 0
+
+  # Nacos配置
+  cloud:
+    nacos:
+      discovery:
+        server-addr: localhost:8848
+        enabled: false  # 暂时关闭Nacos，等部署时再开启
+        service: jtt808-device
+        namespace: public
+        group: DEFAULT_GROUP
+        weight: 1
+      config:
+        server-addr: localhost:8848
+        enabled: false  # 暂时关闭Nacos
+        file-extension: yml
+        namespace: public
+        group: DEFAULT_GROUP
+
+# MyBatis Plus配置
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+  global-config:
+    db-config:
+      id-type: auto
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+  mapper-locations: classpath:mapper/*.xml
+  type-aliases-package: com.lk.jtt808.common.entity
+
+# Netty配置
+netty:
+  port: 8082
+  boss-threads: 1
+  worker-threads: 8
+  keep-alive: true
+  tcp-no-delay: true
+  back-log: 1024
+  buffer-size: 65536
+  so-rcvbuf: 65536
+  so-sndbuf: 65536
+
+# JTT808协议配置
+jtt808:
+  # 请求超时时间（秒）
+  request-timeout: 30
+  # 最大分包数量
+  max-package-count: 255
+  # 消息最大长度
+  max-message-length: 1024
+  # 心跳间隔（秒）
+  heartbeat-interval: 60
+  # 鉴权码有效期（秒）
+  auth-code-expire: 300
+  # 重连间隔（秒）
+  reconnect-interval: 10
+  # 最大重连次数
+  max-reconnect-times: 5
+
+# 日志配置
+logging:
+  level:
+    com.lk.jtt808: DEBUG
+    org.springframework: INFO
+    com.alibaba.druid: INFO
+    org.mybatis: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{50} - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{50} - %msg%n"
+  file:
+    name: logs/jtt808-device.log
+    max-size: 100MB
+    max-history: 30
+
+# 监控配置
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: always
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+
+---
+# 开发环境配置
+spring:
+  profiles: dev
+  datasource:
+    druid:
+      url: jdbc:mysql://localhost:3306/jtt808?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai
+  data:
+    redis:
+      host: localhost
+
+---
+# 测试环境配置
+spring:
+  profiles: test
+  datasource:
+    druid:
+      url: jdbc:mysql://test-mysql:3306/jtt808?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai
+  data:
+    redis:
+      host: test-redis
+
+---
+# 生产环境配置
+spring:
+  profiles: prod
+  datasource:
+    druid:
+      url: jdbc:mysql://prod-mysql:3306/jtt808?useUnicode=true&characterEncoding=utf8&useSSL=true&serverTimezone=Asia/Shanghai
+  data:
+    redis:
+      host: prod-redis
+      password: ${REDIS_PASSWORD}
+
+  # 生产环境开启Nacos
+  cloud:
+    nacos:
+      discovery:
+        enabled: true
+      config:
+        enabled: true
+
+# 生产环境日志级别调整
+logging:
+  level:
+    com.lk.jtt808: INFO
