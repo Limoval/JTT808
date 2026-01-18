@@ -28,6 +28,14 @@ public class SessionManager {
     /** 会话生命周期监听器 */
     private final SessionListener sessionListener;
 
+    // ==================== 统计指标 ====================
+    /** 总连接数 */
+    private final java.util.concurrent.atomic.AtomicLong totalConnections = new java.util.concurrent.atomic.AtomicLong(0);
+    /** 总断开数 */
+    private final java.util.concurrent.atomic.AtomicLong totalDisconnections = new java.util.concurrent.atomic.AtomicLong(0);
+    /** 认证失败数 */
+    private final java.util.concurrent.atomic.AtomicLong authFailures = new java.util.concurrent.atomic.AtomicLong(0);
+
     /**
      * 构造方法
      *
@@ -55,6 +63,9 @@ public class SessionManager {
                 remoteAddress,
                 s -> closeConnection(channel)
         );
+
+        // 增加连接计数
+        totalConnections.incrementAndGet();
 
         // 触发会话创建事件
         notifySessionCreated(session);
@@ -105,6 +116,8 @@ public class SessionManager {
         boolean removed = sessionRegistry.remove(session.getSessionId(), session);
 
         if (removed) {
+            // 增加断开计数
+            totalDisconnections.incrementAndGet();
             // 触发会话销毁事件
             notifySessionDestroyed(session);
             log.info("会话已移除: {}", session);
@@ -238,6 +251,66 @@ public class SessionManager {
             return true;
         }
         return false;
+    }
+
+    // ==================== 统计指标方法 ====================
+
+    /**
+     * 增加认证失败计数
+     */
+    public void incrementAuthFailure() {
+        authFailures.incrementAndGet();
+    }
+
+    /**
+     * 获取当前在线设备数
+     */
+    public int getOnlineCount() {
+        return (int) sessionRegistry.values().stream()
+                .filter(Session::isRegistered)
+                .count();
+    }
+
+    /**
+     * 获取当前连接数（包含未注册的）
+     */
+    public int getConnectionCount() {
+        return sessionRegistry.size();
+    }
+
+    /**
+     * 获取总连接数（历史累计）
+     */
+    public long getTotalConnections() {
+        return totalConnections.get();
+    }
+
+    /**
+     * 获取总断开数（历史累计）
+     */
+    public long getTotalDisconnections() {
+        return totalDisconnections.get();
+    }
+
+    /**
+     * 获取认证失败数（历史累计）
+     */
+    public long getAuthFailures() {
+        return authFailures.get();
+    }
+
+    /**
+     * 获取会话管理器统计信息
+     */
+    public java.util.Map<String, Object> getMetrics() {
+        java.util.Map<String, Object> metrics = new java.util.LinkedHashMap<>();
+        metrics.put("onlineCount", getOnlineCount());
+        metrics.put("connectionCount", getConnectionCount());
+        metrics.put("totalConnections", getTotalConnections());
+        metrics.put("totalDisconnections", getTotalDisconnections());
+        metrics.put("authFailures", getAuthFailures());
+        metrics.put("offlineCacheSize", offlineDataCache.estimatedSize());
+        return metrics;
     }
 
 }

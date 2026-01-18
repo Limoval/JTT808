@@ -11,7 +11,14 @@
       "Bash(set \"JAVA_HOME=C:\\\\Development\\\\Java\\\\25\")",
       "Bash(\"C:\\\\Development\\\\Java\\\\25\\\\bin\\\\java.exe\" -version)",
       "Bash(cmd /c \"set JAVA_HOME=C:\\\\Development\\\\Java\\\\25 && mvn clean compile -DskipTests\")",
-      "Bash($env:JAVA_HOME=\"C:\\\\Development\\\\Java\\\\25\")"
+      "Bash($env:JAVA_HOME=\"C:\\\\Development\\\\Java\\\\25\")",
+      "Bash(where java)",
+      "Bash(set \"JAVA_HOME=C:\\\\Development\\\\Java\\\\jdk-21.0.8\")",
+      "Bash(\"%JAVA_HOME%\\\\bin\\\\java\" -version)",
+      "Bash(\"%JAVA_HOME%\\\\bin\\\\javac\" -version)",
+      "Bash(set JAVA_HOME=C:DevelopmentJavajdk-21.0.8)",
+      "Bash(C:DevelopmentJavajdk-21.0.8binjava -version)",
+      "Bash(JAVA_HOME=/c/Development/Java/jdk-21.0.8 PATH=/c/Development/Java/jdk-21.0.8/bin:$PATH mvn clean:*)"
     ]
   }
 }

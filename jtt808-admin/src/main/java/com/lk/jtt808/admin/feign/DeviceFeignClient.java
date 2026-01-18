@@ -8,8 +8,13 @@ import org.springframework.web.bind.annotation.*;
 /**
  * 设备服务Feign客户端
  * 用于调用jtt808-device服务发送命令
+ * 包含断路器降级处理
  */
-@FeignClient(name = "jtt808-device", url = "${feign.device.url:http://localhost:8081}")
+@FeignClient(
+        name = "jtt808-device",
+        url = "${feign.device.url:http://localhost:8081}",
+        fallback = DeviceFeignClientFallback.class
+)
 public interface DeviceFeignClient {
 
     /**

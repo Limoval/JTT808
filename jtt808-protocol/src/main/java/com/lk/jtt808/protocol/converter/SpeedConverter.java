@@ -12,12 +12,12 @@ public class SpeedConverter implements FieldConverter {
     @Override
     public Object decode(ByteBuf buf, MessageField field) {
         int i = buf.readUnsignedShort();
-        return i / 10;
+        return i / 10.0;
     }
 
     @Override
     public void encode(ByteBuf buf, Object value, MessageField field) {
-        double dValue = (double) value;
-        buf.writeInt((int) (dValue * 10));
+        int intValue = ((Number) value).intValue();
+        buf.writeShort(intValue * 10);
     }
 }

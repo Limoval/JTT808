@@ -1,6 +1,8 @@
 package com.lk.jtt808.protocol.annotation;
 
+import com.lk.jtt808.protocol.cache.MessageMetadataCache;
 import com.lk.jtt808.protocol.entity.JT808Message;
+import lombok.extern.slf4j.Slf4j;
 import org.reflections.Reflections;
 
 import java.io.IOException;
@@ -8,22 +10,28 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
+@Slf4j
 public class MessageHandlerRegistry {
     private static final Map<Integer, Class<? extends JT808Message>> messageMap = new ConcurrentHashMap<>();
 
     /**
      * 自动扫描包路径注册消息类
+     * 同时预热消息元数据缓存以提升运行时性能
      */
     public static void autoRegister(String packagePath) throws IOException {
         Reflections reflections = new Reflections(packagePath);
         Set<Class<?>> annotatedClasses = reflections.getTypesAnnotatedWith(MessageType.class);
-        
+
         for (Class<?> clazz : annotatedClasses) {
             if (JT808Message.class.isAssignableFrom(clazz)) {
                 MessageType annotation = clazz.getAnnotation(MessageType.class);
                 register(annotation.value(), (Class<? extends JT808Message>) clazz);
             }
         }
+
+        // 预热消息元数据缓存
+        MessageMetadataCache.warmup(packagePath);
+        log.info("消息处理器注册完成: 共注册 {} 个消息类型", messageMap.size());
     }
 
     /**

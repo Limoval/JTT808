@@ -13,7 +13,6 @@ import reactor.core.publisher.MonoSink;
 import java.net.InetSocketAddress;
 import java.time.Duration;
 import java.util.Map;
-import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
@@ -51,8 +50,8 @@ public class Session {
     private final long creationTime;
     /** 最后访问时间 */
     private long lastAccessedTime;
-    /** 会话属性存储 */
-    private final Map<Object, Object> attributes;
+    /** 会话属性存储（线程安全） */
+    private final Map<Object, Object> attributes = new ConcurrentHashMap<>();
 
     // ==================== 设备标识属性 ====================
     /** 会话ID（通常是 clientId） */
@@ -81,11 +80,13 @@ public class Session {
     );
 
     private static final ScheduledExecutorService timeoutScheduler =
-            Executors.newScheduledThreadPool(2, r -> {
-                Thread t = new Thread(r, "jtt808-timeout-cleaner");
-                t.setDaemon(true);
-                return t;
-            });
+            Executors.newScheduledThreadPool(
+                    Math.max(4, Runtime.getRuntime().availableProcessors()),
+                    r -> {
+                        Thread t = new Thread(r, "jtt808-timeout-cleaner");
+                        t.setDaemon(true);
+                        return t;
+                    });
 
     private static class ResponseWaiter {
         private final MonoSink sink;
@@ -138,9 +139,6 @@ public class Session {
         // 初始化时间戳
         this.creationTime = System.currentTimeMillis();
         this.lastAccessedTime = creationTime;
-
-        // 初始化属性存储
-        this.attributes = new TreeMap<>();
     }
 
     // ==================== 会话注册相关方法 ====================
@@ -356,6 +354,12 @@ public class Session {
      * 清理资源并关闭连接
      */
     public void invalidate() {
+        // 清理等待中的响应，避免内存泄漏
+        awaitingResponses.forEach((key, waiter) -> {
+            waiter.error(new IllegalStateException("Session closed"));
+        });
+        awaitingResponses.clear();
+
         // 从SessionManager中移除
         if (isRegistered() && sessionManager != null) {
             sessionManager.remove(this);

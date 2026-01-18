@@ -9,8 +9,11 @@ import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.SimpleChannelInboundHandler;
+import io.netty.handler.timeout.IdleState;
+import io.netty.handler.timeout.IdleStateEvent;
 import io.netty.util.AttributeKey;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.net.InetSocketAddress;
@@ -24,6 +27,10 @@ public class JTT808ServerHandler extends SimpleChannelInboundHandler<JT808Messag
     private final SessionManager sessionManager;
 
     private final MessageHandlerDispatcher messageHandlerDispatcher;
+
+    /** 设备注册超时时间（秒） */
+    @Value("${jtt808.registration.timeout-seconds:30}")
+    private int registrationTimeoutSeconds;
 
     public JTT808ServerHandler(SessionManager sessionManager, MessageHandlerDispatcher messageHandlerDispatcher) {
         this.sessionManager = sessionManager;
@@ -90,16 +97,31 @@ public class JTT808ServerHandler extends SimpleChannelInboundHandler<JT808Messag
     }
 
     /**
+     * 处理用户事件（空闲检测等）
+     */
+    @Override
+    public void userEventTriggered(ChannelHandlerContext ctx, Object evt) throws Exception {
+        if (evt instanceof IdleStateEvent event) {
+            if (event.state() == IdleState.READER_IDLE) {
+                Session session = getSessionFromChannel(ctx.channel());
+                String identifier = session != null ? session.getClientId() : ctx.channel().remoteAddress().toString();
+                log.warn("连接空闲超时: {}", identifier);
+                ctx.close();
+            }
+        }
+        super.userEventTriggered(ctx, evt);
+    }
+
+    /**
      * 设置连接超时检查
      */
     private void scheduleConnectionTimeout(ChannelHandlerContext ctx, Session session) {
-        // 30秒内必须收到注册消息，否则关闭连接
         ctx.channel().eventLoop().schedule(() -> {
             if (!session.isRegistered()) {
                 log.warn("设备连接超时未注册，关闭连接: {}", session.getRemoteAddressStr());
                 ctx.channel().close();
             }
-        }, 30, TimeUnit.SECONDS);
+        }, registrationTimeoutSeconds, TimeUnit.SECONDS);
     }
 
     /**

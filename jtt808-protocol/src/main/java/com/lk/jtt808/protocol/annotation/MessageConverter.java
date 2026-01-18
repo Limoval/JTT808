@@ -1,82 +1,66 @@
 package com.lk.jtt808.protocol.annotation;
 
 
-import com.lk.jtt808.protocol.converter.DefaultConverter;
+import com.lk.jtt808.protocol.cache.FieldMetadata;
+import com.lk.jtt808.protocol.cache.MessageMetadata;
+import com.lk.jtt808.protocol.cache.MessageMetadataCache;
 import com.lk.jtt808.protocol.converter.FieldConverter;
 import com.lk.jtt808.protocol.util.BcdUtil;
 import io.netty.buffer.ByteBuf;
 import lombok.extern.slf4j.Slf4j;
 
-import java.lang.reflect.Field;
 import java.nio.charset.Charset;
-import java.util.Arrays;
-import java.util.Comparator;
-import java.util.Optional;
 
 @Slf4j
 public class MessageConverter {
     public static <T> T parse(ByteBuf buf, Class<T> clazz) throws Exception {
         T instance = clazz.getDeclaredConstructor().newInstance();
-        Field[] fields = clazz.getDeclaredFields();
 
         // 优先检查是否实现了自定义解析接口
         if (instance instanceof CustomMapping customParser) {
             if (customParser.customParse(buf)) {
-                log.info("使用自定义解析逻辑: {}", instance.getClass().getSimpleName());
+                log.debug("使用自定义解析逻辑: {}", instance.getClass().getSimpleName());
                 return instance;
             }
             log.error("自定义解析失败，回退到默认解析逻辑: {}", instance.getClass().getSimpleName());
         }
 
-        // 按order排序字段
-        Arrays.sort(fields, Comparator.comparingInt(f ->
-                Optional.ofNullable(f.getAnnotation(MessageField.class))
-                        .map(MessageField::order)
-                        .orElse(Integer.MAX_VALUE)));
+        // 使用缓存的元数据（已预排序）
+        MessageMetadata metadata = MessageMetadataCache.getOrCreate(clazz);
 
-        for (Field field : fields) {
-            MessageField anno = field.getAnnotation(MessageField.class);
-            if (anno == null) continue;
-            field.setAccessible(true);
+        for (FieldMetadata fm : metadata.getOrderedFields()) {
+            MessageField anno = fm.getAnnotation();
 
-            if (decodeFieldWithConverter(buf, field, anno, instance)) continue;
+            // 使用缓存的转换器
+            if (fm.hasCustomConverter()) {
+                Object value = fm.getConverter().decode(buf, anno);
+                fm.getField().set(instance, value);
+                continue;
+            }
 
+            // 标准类型处理
             switch (anno.type()) {
                 case BYTE:
-                    setFieldValue(field, instance, buf.readUnsignedByte());
+                    fm.getField().set(instance, buf.readUnsignedByte());
                     break;
                 case WORD:
-                    setFieldValue(field, instance, buf.readUnsignedShort());
+                    fm.getField().set(instance, buf.readUnsignedShort());
                     break;
                 case DWORD:
-                    setFieldValue(field, instance, buf.readUnsignedInt());
+                    fm.getField().set(instance, buf.readUnsignedInt());
                     break;
                 case BCD:
-                    setFieldValue(field, instance, readBcd(buf, anno.length()));
+                    fm.getField().set(instance, readBcd(buf, anno.length()));
                     break;
                 case STRING:
-                    setFieldValue(field, instance, readString(buf, anno.length(), anno.charset()));
+                    fm.getField().set(instance, readString(buf, anno.length(), anno.charset()));
                     break;
                 case BYTES:
-                    setFieldValue(field, instance, readBytes(buf, anno.length()));
+                    fm.getField().set(instance, readBytes(buf, anno.length()));
                     break;
             }
         }
         return instance;
-    }
-
-    private static <T> boolean decodeFieldWithConverter(ByteBuf buf, Field field, MessageField anno, T instance) throws Exception {
-        if (anno.converter() != null && !anno.converter().equals(DefaultConverter.class)) {
-            FieldConverter fieldConverter = anno.converter().getDeclaredConstructor().newInstance();
-            Object decode = fieldConverter.decode(buf, anno);
-            field.set(instance, decode);
-            return true;
-        }
-        return false;
-    }
-
-    private static void setFieldValue(Field field, Object instance, Object value) throws IllegalAccessException {
-        field.set(instance, value);
     }
 
     private static String readBcd(ByteBuf buf, int length) {
@@ -112,61 +96,32 @@ public class MessageConverter {
         // 优先检查是否实现了自定义编码接口
         if (msg instanceof CustomMapping customParser) {
             if (customParser.customEncode(bodyBuf)) {
-                log.info("使用自定义编码逻辑: {}", msg.getClass().getSimpleName());
+                log.debug("使用自定义编码逻辑: {}", msg.getClass().getSimpleName());
                 return;
             }
             log.error("自定义编码失败，回退到默认编码逻辑: {}", msg.getClass().getSimpleName());
         }
 
-        Field[] fields = msg.getClass().getDeclaredFields();
+        // 使用缓存的元数据（已预排序）
+        MessageMetadata metadata = MessageMetadataCache.getOrCreate(msg.getClass());
 
-        // 按order排序字段，使用Optional避免空指针异常
-        Arrays.sort(fields, Comparator.comparingInt(f ->
-                Optional.ofNullable(f.getAnnotation(MessageField.class))
-                        .map(MessageField::order)
-                        .orElse(Integer.MAX_VALUE)));
-
-        for (Field field : fields) {
-            MessageField annotation = field.getAnnotation(MessageField.class);
-            if (annotation == null) continue;
-
-            field.setAccessible(true);
-            Object fieldValue = field.get(msg);
+        for (FieldMetadata fm : metadata.getOrderedFields()) {
+            Object fieldValue = fm.getField().get(msg);
 
             // 跳过null值字段
             if (fieldValue == null) continue;
 
-            // 优先处理自定义转换器
-            if (encodeFieldWithConverter(bodyBuf, annotation, fieldValue)) {
+            MessageField annotation = fm.getAnnotation();
+
+            // 使用缓存的转换器
+            if (fm.hasCustomConverter()) {
+                fm.getConverter().encode(bodyBuf, fieldValue, annotation);
                 continue;
             }
 
             // 处理标准字段类型
             writeFieldToByteBuf(bodyBuf, annotation, fieldValue);
         }
-    }
-
-    /**
-     * 处理具有自定义转换器的字段
-     * @param bodyBuf 目标ByteBuf
-     * @param annotation 字段注解
-     * @param fieldValue 字段值
-     * @return 是否已处理
-     */
-    private static boolean encodeFieldWithConverter(ByteBuf bodyBuf, MessageField annotation, Object fieldValue) {
-        Class<? extends FieldConverter> converterClass = annotation.converter();
-
-        if (converterClass != null && !converterClass.equals(DefaultConverter.class)) {
-            try {
-                FieldConverter converter = getOrCreateConverter(converterClass);
-                converter.encode(bodyBuf, fieldValue, annotation);
-                return true;
-            } catch (Exception e) {
-                throw new RuntimeException("Failed to encode field with converter: " +
-                        converterClass.getSimpleName(), e);
-            }
-        }
-        return false;
     }
 
     /**
@@ -298,11 +253,4 @@ public class MessageConverter {
         bodyBuf.writeBytes(bytes);
     }
 
-    /**
-     * 获取或创建转换器实例（可以考虑使用缓存优化）
-     */
-    private static FieldConverter getOrCreateConverter(Class<? extends FieldConverter> converterClass)
-            throws Exception {
-        return converterClass.getDeclaredConstructor().newInstance();
-    }
 }

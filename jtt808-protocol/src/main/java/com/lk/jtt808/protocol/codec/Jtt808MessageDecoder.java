@@ -1,6 +1,9 @@
 package com.lk.jtt808.protocol.codec;
 
 
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
+import com.github.benmanes.caffeine.cache.RemovalCause;
 import com.lk.jtt808.protocol.entity.JT808Message;
 import com.lk.jtt808.protocol.util.BcdUtil;
 import io.netty.buffer.ByteBuf;
@@ -12,12 +15,23 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 @Slf4j
 public class Jtt808MessageDecoder extends MessageToMessageDecoder<ByteBuf> {
 
-    // 用于存储分包消息的缓存
-    private final Map<String, Map<Integer, byte[]>> packageCache = new HashMap<>();
+    /** 分包消息缓存（带TTL和容量限制，防止内存泄漏） */
+    private final Cache<String, Map<Integer, byte[]>> packageCache = Caffeine.newBuilder()
+            .expireAfterWrite(5, TimeUnit.MINUTES)
+            .maximumSize(10000)
+            .removalListener((String key, Map<Integer, byte[]> value, RemovalCause cause) -> {
+                if (cause == RemovalCause.EXPIRED) {
+                    log.warn("分包数据过期被清理: key={}", key);
+                } else if (cause == RemovalCause.SIZE) {
+                    log.warn("分包缓存容量已满，清理最旧数据: key={}", key);
+                }
+            })
+            .build();
 
     @Override
     protected void decode(ChannelHandlerContext ctx, ByteBuf msg, List<Object> out) throws Exception {
@@ -171,7 +185,7 @@ public class Jtt808MessageDecoder extends MessageToMessageDecoder<ByteBuf> {
 
         // 缓存分包
         String key = message.getClientId() + "_" + message.getInboundSerialNo();
-        Map<Integer, byte[]> packageMap = packageCache.computeIfAbsent(key, k -> new HashMap<>());
+        Map<Integer, byte[]> packageMap = packageCache.get(key, k -> new HashMap<>());
         packageMap.put(message.getPackageIndex(), bodyData);
 
         // 检查是否所有分包都已接收
@@ -200,7 +214,7 @@ public class Jtt808MessageDecoder extends MessageToMessageDecoder<ByteBuf> {
             message.setMessageBody(completeBody);
 
             // 清理缓存
-            packageCache.remove(key);
+            packageCache.invalidate(key);
         } else {
             // 还未收到所有分包，设置空消息体
             message.setMessageBody(null);
@@ -212,6 +226,13 @@ public class Jtt808MessageDecoder extends MessageToMessageDecoder<ByteBuf> {
      * 可以定期调用此方法，清理过期的分包数据
      */
     public void clearPackageCache() {
-        packageCache.clear();
+        packageCache.invalidateAll();
+    }
+
+    /**
+     * 获取分包缓存统计信息
+     */
+    public long getPackageCacheSize() {
+        return packageCache.estimatedSize();
     }
 }
