@@ -18,7 +18,17 @@
       "Bash(\"%JAVA_HOME%\\\\bin\\\\javac\" -version)",
       "Bash(set JAVA_HOME=C:DevelopmentJavajdk-21.0.8)",
       "Bash(C:DevelopmentJavajdk-21.0.8binjava -version)",
-      "Bash(JAVA_HOME=/c/Development/Java/jdk-21.0.8 PATH=/c/Development/Java/jdk-21.0.8/bin:$PATH mvn clean:*)"
+      "Bash(JAVA_HOME=/c/Development/Java/jdk-21.0.8 PATH=/c/Development/Java/jdk-21.0.8/bin:$PATH mvn clean:*)",
+      "mcp__jetbrains__list_directory_tree",
+      "mcp__jetbrains__find_files_by_glob",
+      "mcp__jetbrains__get_file_text_by_path",
+      "Bash($JAVA_HOME/bin/java -version)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(git config:*)",
+      "Bash(ssh:*)",
+      "Bash(echo:*)"
     ]
   }
 }
