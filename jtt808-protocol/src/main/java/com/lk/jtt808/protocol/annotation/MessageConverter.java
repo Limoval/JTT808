@@ -1,10 +1,9 @@
 package com.lk.jtt808.protocol.annotation;
 
-
 import com.lk.jtt808.protocol.cache.FieldMetadata;
 import com.lk.jtt808.protocol.cache.MessageMetadata;
 import com.lk.jtt808.protocol.cache.MessageMetadataCache;
-import com.lk.jtt808.protocol.converter.FieldConverter;
+import com.lk.jtt808.protocol.entity.enums.DataType;
 import com.lk.jtt808.protocol.util.BcdUtil;
 import io.netty.buffer.ByteBuf;
 import lombok.extern.slf4j.Slf4j;
@@ -29,17 +28,16 @@ public class MessageConverter {
         MessageMetadata metadata = MessageMetadataCache.getOrCreate(clazz);
 
         for (FieldMetadata fm : metadata.getOrderedFields()) {
-            MessageField anno = fm.getAnnotation();
-
             // 使用缓存的转换器
             if (fm.hasCustomConverter()) {
-                Object value = fm.getConverter().decode(buf, anno);
+                Object value = fm.getConverter().decode(buf, fm);
                 fm.getField().set(instance, value);
                 continue;
             }
 
             // 标准类型处理
-            switch (anno.type()) {
+            DataType dataType = fm.getDataType();
+            switch (dataType) {
                 case BYTE:
                     fm.getField().set(instance, buf.readUnsignedByte());
                     break;
@@ -50,13 +48,13 @@ public class MessageConverter {
                     fm.getField().set(instance, buf.readUnsignedInt());
                     break;
                 case BCD:
-                    fm.getField().set(instance, readBcd(buf, anno.length()));
+                    fm.getField().set(instance, readBcd(buf, fm.getLength()));
                     break;
                 case STRING:
-                    fm.getField().set(instance, readString(buf, anno.length(), anno.charset()));
+                    fm.getField().set(instance, readString(buf, fm.getLength(), fm.getCharset()));
                     break;
                 case BYTES:
-                    fm.getField().set(instance, readBytes(buf, anno.length()));
+                    fm.getField().set(instance, readBytes(buf, fm.getLength()));
                     break;
             }
         }
@@ -75,7 +73,8 @@ public class MessageConverter {
     }
 
     private static byte[] readBytes(ByteBuf buf, int length) {
-        byte[] bytes = new byte[length];
+        int len = length > 0 ? length : buf.readableBytes();
+        byte[] bytes = new byte[len];
         buf.readBytes(bytes);
         return bytes;
     }
@@ -111,29 +110,27 @@ public class MessageConverter {
             // 跳过null值字段
             if (fieldValue == null) continue;
 
-            MessageField annotation = fm.getAnnotation();
-
             // 使用缓存的转换器
             if (fm.hasCustomConverter()) {
-                fm.getConverter().encode(bodyBuf, fieldValue, annotation);
+                fm.getConverter().encode(bodyBuf, fieldValue, fm);
                 continue;
             }
 
             // 处理标准字段类型
-            writeFieldToByteBuf(bodyBuf, annotation, fieldValue);
+            writeFieldToByteBuf(bodyBuf, fm, fieldValue);
         }
     }
 
     /**
      * 根据字段类型将值写入ByteBuf
      * @param bodyBuf 目标ByteBuf
-     * @param annotation 字段注解
+     * @param fm 字段元数据
      * @param fieldValue 字段值
      * @throws IllegalArgumentException 类型转换异常
      */
-    private static void writeFieldToByteBuf(ByteBuf bodyBuf, MessageField annotation, Object fieldValue) {
+    private static void writeFieldToByteBuf(ByteBuf bodyBuf, FieldMetadata fm, Object fieldValue) {
         try {
-            switch (annotation.type()) {
+            switch (fm.getDataType()) {
                 case BYTE:
                     writeByte(bodyBuf, fieldValue);
                     break;
@@ -147,16 +144,16 @@ public class MessageConverter {
                     writeBcd(bodyBuf, fieldValue);
                     break;
                 case STRING:
-                    writeString(bodyBuf, fieldValue, annotation.charset());
+                    writeString(bodyBuf, fieldValue, fm.getCharset());
                     break;
                 case BYTES:
                     writeBytes(bodyBuf, fieldValue);
                     break;
                 default:
-                    throw new UnsupportedOperationException("Unsupported field type: " + annotation.type());
+                    throw new UnsupportedOperationException("Unsupported field type: " + fm.getDataType());
             }
         } catch (Exception e) {
-            throw new RuntimeException("Failed to write field of type: " + annotation.type(), e);
+            throw new RuntimeException("Failed to write field of type: " + fm.getDataType(), e);
         }
     }
 

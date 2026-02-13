@@ -2,6 +2,7 @@ package com.lk.jtt808.protocol.entity;
 
 import com.lk.jtt808.protocol.annotation.MessageField;
 import com.lk.jtt808.protocol.annotation.MessageType;
+import com.lk.jtt808.protocol.cache.FieldMetadata;
 import com.lk.jtt808.protocol.converter.FieldConverter;
 import com.lk.jtt808.protocol.entity.enums.DataType;
 import com.lk.jtt808.protocol.constant.JT808;
@@ -20,7 +21,7 @@ public class T8103 extends JT808Message {
     @MessageField(order = 1, type = DataType.BYTE, desc = "参数总数")
     private int parameterCount;
 
-    @MessageField(order = 2, type = DataType.BYTES, desc = "参数项列表", 
+    @MessageField(order = 2, type = DataType.BYTES, desc = "参数项列表",
                   converter = TerminalParameterListConverter.class)
     private List<TerminalParameter> parameters;
 
@@ -41,7 +42,7 @@ public class T8103 extends JT808Message {
     public static class TerminalParameterListConverter implements FieldConverter {
 
         @Override
-        public Object decode(ByteBuf buf, MessageField annotation) {
+        public Object decode(ByteBuf buf, FieldMetadata fieldMetadata) {
             List<TerminalParameter> parameters = new ArrayList<>();
 
             while (buf.readableBytes() > 0) {
@@ -73,7 +74,7 @@ public class T8103 extends JT808Message {
         }
 
         @Override
-        public void encode(ByteBuf buf, Object value, MessageField annotation) {
+        public void encode(ByteBuf buf, Object value, FieldMetadata fieldMetadata) {
             if (!(value instanceof List)) {
                 throw new IllegalArgumentException("Value must be List<TerminalParameter>");
             }

@@ -1,38 +1,42 @@
 package com.lk.jtt808.protocol.entity;
 
-
-import com.lk.jtt808.protocol.annotation.MessageField;
 import com.lk.jtt808.protocol.annotation.MessageType;
-import com.lk.jtt808.protocol.entity.enums.DataType;
+import com.lk.jtt808.protocol.annotation.field.ByteField;
+import com.lk.jtt808.protocol.annotation.field.StringField;
+import com.lk.jtt808.protocol.annotation.field.WordField;
 import com.lk.jtt808.protocol.constant.JT808;
+import com.lk.jtt808.protocol.constant.ResponseCode;
 import lombok.Data;
+import lombok.EqualsAndHashCode;
 import lombok.ToString;
 
 /**
- * @author: Limoval
- * time: 2025/5/23 14:31 周五
- * description:
+ * 终端注册应答
+ * 消息ID: 0x8100
  */
+@EqualsAndHashCode(callSuper = true)
 @Data
 @MessageType(JT808.终端注册应答)
 @ToString
 public class T8100 extends JT808Message {
+
     /** 0.成功 */
-    public static final int Success = 0;
+    public static final int Success = ResponseCode.REGISTER_SUCCESS;
     /** 1.车辆已被注册 */
-    public static final int AlreadyRegisteredVehicle = 1;
+    public static final int AlreadyRegisteredVehicle = ResponseCode.VEHICLE_ALREADY_REGISTERED;
     /** 2.数据库中无该车辆 */
-    public static final int NotFoundVehicle = 2;
+    public static final int NotFoundVehicle = ResponseCode.VEHICLE_NOT_FOUND;
     /** 3.终端已被注册 */
-    public static final int AlreadyRegisteredTerminal = 3;
+    public static final int AlreadyRegisteredTerminal = ResponseCode.TERMINAL_ALREADY_REGISTERED;
     /** 4.数据库中无该终端 */
-    public static final int NotFoundTerminal = 4;
+    public static final int NotFoundTerminal = ResponseCode.TERMINAL_NOT_FOUND;
 
-    @MessageField(order = 1, type = DataType.WORD, desc = "应答流水号")
+    @WordField
     private int responseSerialNo;
-    @MessageField(order = 2, type = DataType.BYTE, desc = "结果：0.成功 1.车辆已被注册 2.数据库中无该车辆 3.终端已被注册 4.数据库中无该终端")
-    private int resultCode;
-    @MessageField(order = 3, type = DataType.STRING, charset = "UTF8", desc = "鉴权码(成功后才有该字段)")
-    private String token;
 
+    @ByteField
+    private int resultCode;
+
+    @StringField(charset = "UTF8")
+    private String token;
 }

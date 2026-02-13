@@ -1,22 +1,21 @@
 package com.lk.jtt808.protocol.converter;
 
-import com.lk.jtt808.protocol.annotation.MessageField;
+import com.lk.jtt808.protocol.cache.FieldMetadata;
 import io.netty.buffer.ByteBuf;
 
 /**
- * @author: Limoval
- * time: 2025/5/26 14:57 周一
- * description:
+ * 速度转换器
+ * JT808协议中速度以整数形式传输，单位为 1/10 km/h
  */
 public class SpeedConverter implements FieldConverter {
     @Override
-    public Object decode(ByteBuf buf, MessageField field) {
+    public Object decode(ByteBuf buf, FieldMetadata fieldMetadata) {
         int i = buf.readUnsignedShort();
         return i / 10.0;
     }
 
     @Override
-    public void encode(ByteBuf buf, Object value, MessageField field) {
+    public void encode(ByteBuf buf, Object value, FieldMetadata fieldMetadata) {
         int intValue = ((Number) value).intValue();
         buf.writeShort(intValue * 10);
     }
