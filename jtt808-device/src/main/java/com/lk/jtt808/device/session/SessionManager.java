@@ -2,12 +2,14 @@ package com.lk.jtt808.device.session;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
+import com.lk.jtt808.device.transport.MessageSender;
+import com.lk.jtt808.device.transport.TransportType;
+import com.lk.jtt808.device.transport.tcp.TcpMessageSender;
 import io.netty.channel.Channel;
 import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
-import java.net.InetSocketAddress;
 import java.util.Collection;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
@@ -29,137 +31,94 @@ public class SessionManager {
     private final SessionListener sessionListener;
 
     // ==================== 统计指标 ====================
-    /** 总连接数 */
     private final java.util.concurrent.atomic.AtomicLong totalConnections = new java.util.concurrent.atomic.AtomicLong(0);
-    /** 总断开数 */
     private final java.util.concurrent.atomic.AtomicLong totalDisconnections = new java.util.concurrent.atomic.AtomicLong(0);
-    /** 认证失败数 */
     private final java.util.concurrent.atomic.AtomicLong authFailures = new java.util.concurrent.atomic.AtomicLong(0);
 
-    /**
-     * 构造方法
-     *
-     * @param sessionListener 会话生命周期监听器
-     */
     public SessionManager(SessionListener sessionListener) {
         this.sessionRegistry = new ConcurrentHashMap<>();
         this.sessionListener = sessionListener;
 
-        // 配置离线缓存：10分钟无访问后过期
         this.offlineDataCache = Caffeine.newBuilder()
                 .expireAfterAccess(10, TimeUnit.MINUTES)
-                .maximumSize(10000) // 最大缓存1万个设备的离线数据
+                .maximumSize(10000)
                 .build();
     }
 
-    // ==================== 会话创建和销毁 ====================
+    // ==================== 会话创建 ====================
 
-    public Session createTcpSession(Channel channel) {
-        InetSocketAddress remoteAddress = (InetSocketAddress) channel.remoteAddress();
+    /**
+     * 通用会话创建方法
+     *
+     * @param messageSender 消息发送策略
+     * @param transportType 传输类型
+     * @return 新创建的会话
+     */
+    public Session createSession(MessageSender messageSender, TransportType transportType) {
+        Session session = new Session(this, messageSender, transportType);
 
-        Session session = new Session(
-                this,
-                channel,
-                remoteAddress,
-                s -> closeConnection(channel)
-        );
-
-        // 增加连接计数
         totalConnections.incrementAndGet();
-
-        // 触发会话创建事件
         notifySessionCreated(session);
 
-        log.info("TCP会话已创建: {}", session);
+        log.info("{}会话已创建: remote={}", transportType, session.getRemoteAddressStr());
         return session;
+    }
+
+    /**
+     * TCP 会话创建便捷方法
+     *
+     * @param channel Netty Channel
+     * @return 新创建的 TCP 会话
+     */
+    public Session createTcpSession(Channel channel) {
+        MessageSender sender = new TcpMessageSender(channel);
+        return createSession(sender, TransportType.TCP);
     }
 
     @PreDestroy
     public void shutdown() {
-        // 关闭超时调度器
         Session.shutdownTimeoutScheduler();
-
-        // 关闭所有会话
         sessionRegistry.values().forEach(Session::invalidate);
     }
 
-
     // ==================== 会话注册和查询 ====================
 
-    /**
-     * 注册会话到管理器
-     * 通常在设备鉴权通过后调用
-     *
-     * @param session 要注册的会话
-     */
     protected void add(Session session) {
-        // 检查是否有旧会话需要替换
         Session oldSession = sessionRegistry.put(session.getSessionId(), session);
 
         if (oldSession != null && !oldSession.equals(session)) {
             log.warn("替换已存在的会话: {} -> {}", oldSession, session);
-            oldSession.invalidate(); // 关闭旧会话
+            oldSession.invalidate();
         }
 
-        // 触发会话注册事件
         notifySessionRegistered(session);
-
         log.info("会话已注册: {}", session);
     }
 
-    /**
-     * 从管理器中移除会话
-     *
-     * @param session 要移除的会话
-     */
     protected void remove(Session session) {
         boolean removed = sessionRegistry.remove(session.getSessionId(), session);
 
         if (removed) {
-            // 增加断开计数
             totalDisconnections.incrementAndGet();
-            // 触发会话销毁事件
             notifySessionDestroyed(session);
             log.info("会话已移除: {}", session);
         }
     }
 
-    /**
-     * 根据会话ID获取会话
-     *
-     * @param sessionId 会话ID（通常是设备ID）
-     * @return 会话对象，不存在则返回null
-     */
     public Session getSession(String sessionId) {
         return sessionRegistry.get(sessionId);
     }
 
-    /**
-     * 获取所有会话
-     *
-     * @return 所有会话的集合
-     */
     public Collection<Session> getAllSessions() {
         return sessionRegistry.values();
     }
 
-    /**
-     * 获取所有在线会话
-     *
-     * @return 在线会话的集合
-     */
     public Collection<Session> getOnlineSessions() {
         return sessionRegistry.values().stream()
                 .filter(Session::isRegistered)
                 .collect(Collectors.toList());
     }
 
-    /**
-     * 检查设备是否在线
-     *
-     * @param clientId 设备ID
-     * @return 是否在线
-     */
     public boolean isDeviceOnline(String clientId) {
         Session session = sessionRegistry.get(clientId);
         return session != null && session.isRegistered();
@@ -167,33 +126,15 @@ public class SessionManager {
 
     // ==================== 离线缓存管理 ====================
 
-    /**
-     * 设置设备的离线缓存数据
-     * 用于存储设备离线期间的重要数据
-     *
-     * @param clientId 设备ID
-     * @param data 要缓存的数据
-     */
     public void setOfflineCache(String clientId, Object data) {
         offlineDataCache.put(clientId, data);
         log.debug("设置离线缓存: clientId={}", clientId);
     }
 
-    /**
-     * 获取设备的离线缓存数据
-     *
-     * @param clientId 设备ID
-     * @return 缓存的数据，不存在则返回null
-     */
     public Object getOfflineCache(String clientId) {
         return offlineDataCache.getIfPresent(clientId);
     }
 
-    /**
-     * 清除设备的离线缓存
-     *
-     * @param clientId 设备ID
-     */
     public void clearOfflineCache(String clientId) {
         offlineDataCache.invalidate(clientId);
         log.debug("清除离线缓存: clientId={}", clientId);
@@ -201,9 +142,6 @@ public class SessionManager {
 
     // ==================== 会话生命周期事件通知 ====================
 
-    /**
-     * 通知会话创建事件
-     */
     private void notifySessionCreated(Session session) {
         if (sessionListener != null) {
             try {
@@ -214,9 +152,6 @@ public class SessionManager {
         }
     }
 
-    /**
-     * 通知会话注册事件
-     */
     private void notifySessionRegistered(Session session) {
         if (sessionListener != null) {
             try {
@@ -227,9 +162,6 @@ public class SessionManager {
         }
     }
 
-    /**
-     * 通知会话销毁事件
-     */
     private void notifySessionDestroyed(Session session) {
         if (sessionListener != null) {
             try {
@@ -240,68 +172,34 @@ public class SessionManager {
         }
     }
 
-    // ==================== 工具方法 ====================
-
-    /**
-     * 关闭网络连接
-     */
-    private Boolean closeConnection(Channel channel) {
-        if (channel != null && channel.isActive()) {
-            channel.close();
-            return true;
-        }
-        return false;
-    }
-
     // ==================== 统计指标方法 ====================
 
-    /**
-     * 增加认证失败计数
-     */
     public void incrementAuthFailure() {
         authFailures.incrementAndGet();
     }
 
-    /**
-     * 获取当前在线设备数
-     */
     public int getOnlineCount() {
         return (int) sessionRegistry.values().stream()
                 .filter(Session::isRegistered)
                 .count();
     }
 
-    /**
-     * 获取当前连接数（包含未注册的）
-     */
     public int getConnectionCount() {
         return sessionRegistry.size();
     }
 
-    /**
-     * 获取总连接数（历史累计）
-     */
     public long getTotalConnections() {
         return totalConnections.get();
     }
 
-    /**
-     * 获取总断开数（历史累计）
-     */
     public long getTotalDisconnections() {
         return totalDisconnections.get();
     }
 
-    /**
-     * 获取认证失败数（历史累计）
-     */
     public long getAuthFailures() {
         return authFailures.get();
     }
 
-    /**
-     * 获取会话管理器统计信息
-     */
     public java.util.Map<String, Object> getMetrics() {
         java.util.Map<String, Object> metrics = new java.util.LinkedHashMap<>();
         metrics.put("onlineCount", getOnlineCount());
@@ -312,5 +210,4 @@ public class SessionManager {
         metrics.put("offlineCacheSize", offlineDataCache.estimatedSize());
         return metrics;
     }
-
 }

@@ -1,52 +1,32 @@
 package com.lk.jtt808.device.handler.inbound;
 
 
+import com.lk.jtt808.device.handler.InboundHandler;
+import com.lk.jtt808.device.session.SessionManager;
+import com.lk.jtt808.device.transport.TransportSession;
+import com.lk.jtt808.protocol.constant.JT808;
 import com.lk.jtt808.protocol.entity.JT808Message;
 import com.lk.jtt808.protocol.entity.T8001;
-import com.lk.jtt808.device.handler.InboundHandler;
-import com.lk.jtt808.device.session.Session;
-import com.lk.jtt808.device.session.SessionManager;
-import com.lk.jtt808.protocol.constant.JT808;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
-import org.springframework.data.redis.core.RedisTemplate;
 
 /**
  * 请求处理抽象类
- * @param <T>
+ * 移除 RedisTemplate 依赖，各子类通过 Repository 接口访问数据
  */
 @Slf4j
 public abstract class AbstractInboundHandler<T extends JT808Message> implements InboundHandler<T> {
 
-
-    protected final RedisTemplate<String, Object> redisTemplate;
-
-
     protected final SessionManager sessionManager;
 
-    public AbstractInboundHandler(RedisTemplate<String, Object> redisTemplate, SessionManager sessionManager) {
-        this.redisTemplate = redisTemplate;
+    public AbstractInboundHandler(SessionManager sessionManager) {
         this.sessionManager = sessionManager;
     }
 
-    protected static final String MQTT_MESSAGE_KEY = "mqtt:client_id:";
-
-
     /**
-     * 根据信息组建topic发送mqtt信息到设备平台
-     * @param clientId 设备id
-     * @param metaData 源数据
+     * 默认为平台通用应答
      */
-    protected void sendMessage(String clientId, String metaData) {
-
-    }
-
-
-    /**
-     * 默认为平台通用应答,如有需求可自行实现
-     * @param message
-     */
-    public void reply(T message, Session session, Integer code) {
+    public void reply(T message, TransportSession session, Integer code) {
         T8001 t8001 = new T8001();
         BeanUtils.copyProperties(message, t8001);
         t8001.setMessageId(JT808.平台通用应答);
@@ -60,7 +40,6 @@ public abstract class AbstractInboundHandler<T extends JT808Message> implements 
                 .doOnError(error -> log.error("发送平台通用应答失败: clientId={}", t8001.getClientId(), error))
                 .subscribe();
     }
-
 
     @Override
     public void reply(T message, Integer code) {

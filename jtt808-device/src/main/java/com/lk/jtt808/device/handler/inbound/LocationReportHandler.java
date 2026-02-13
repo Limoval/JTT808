@@ -1,26 +1,41 @@
 package com.lk.jtt808.device.handler.inbound;
 
 
+import com.lk.jtt808.common.entity.AlarmRecord;
+import com.lk.jtt808.common.entity.LocationRecord;
+import com.lk.jtt808.device.repository.AlarmRepository;
+import com.lk.jtt808.device.repository.LocationRepository;
+import com.lk.jtt808.device.session.SessionManager;
+import com.lk.jtt808.device.transport.TransportSession;
 import com.lk.jtt808.protocol.entity.T0200;
 import com.lk.jtt808.protocol.entity.T8001;
-import com.lk.jtt808.device.session.Session;
-import com.lk.jtt808.device.session.SessionManager;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.scheduling.annotation.Async;
-import org.springframework.stereotype.Component;
+import org.springframework.stereotype.Service;
+
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.HashMap;
+import java.util.Map;
 
 
-@Component
+@Service
 @Slf4j
 public class LocationReportHandler extends AbstractInboundHandler<T0200> {
 
-    public LocationReportHandler(RedisTemplate<String, Object> redisTemplate, SessionManager sessionManager) {
-        super(redisTemplate, sessionManager);
+    private final LocationRepository locationRepository;
+    private final AlarmRepository alarmRepository;
+
+    public LocationReportHandler(SessionManager sessionManager,
+                                 LocationRepository locationRepository,
+                                 AlarmRepository alarmRepository) {
+        super(sessionManager);
+        this.locationRepository = locationRepository;
+        this.alarmRepository = alarmRepository;
     }
 
     @Override
-    public Integer handle(T0200 message, Session session) {
+    public Integer handle(T0200 message, TransportSession session) {
         log.info("位置上报: clientId={}, lat={}, lon={}, speed={}, direction={}",
                 message.getClientId(),
                 message.getLatitude(),
@@ -33,7 +48,7 @@ public class LocationReportHandler extends AbstractInboundHandler<T0200> {
 
         // 2. 检查报警标志
         if (message.getAlarmFlag() != null && message.getAlarmFlag() != 0) {
-            processAlarms(message, session);
+            processAlarms(message);
         }
 
         // 3. 发送平台通用应答
@@ -43,43 +58,69 @@ public class LocationReportHandler extends AbstractInboundHandler<T0200> {
     }
 
     /**
-     * 异步保存位置数据到Redis和数据库
+     * 异步保存位置数据到 Redis 缓存和 MySQL 持久化
      */
     @Async
     protected void saveLocationAsync(T0200 message) {
         try {
             String clientId = message.getClientId();
 
-            // 保存最新位置到Redis
-            String locationKey = "device:location:" + clientId;
-            redisTemplate.opsForHash().put(locationKey, "latitude", message.getLatitude());
-            redisTemplate.opsForHash().put(locationKey, "longitude", message.getLongitude());
-            redisTemplate.opsForHash().put(locationKey, "speed", message.getSpeed());
-            redisTemplate.opsForHash().put(locationKey, "direction", message.getDirection());
-            redisTemplate.opsForHash().put(locationKey, "altitude", message.getAltitude());
-            redisTemplate.opsForHash().put(locationKey, "timestamp", System.currentTimeMillis());
+            // 保存最新位置到 Redis 缓存
+            Map<String, Object> locationData = new HashMap<>();
+            locationData.put("latitude", message.getLatitude());
+            locationData.put("longitude", message.getLongitude());
+            locationData.put("speed", message.getSpeed());
+            locationData.put("direction", message.getDirection());
+            locationData.put("altitude", message.getAltitude());
+            locationData.put("timestamp", System.currentTimeMillis());
+            locationRepository.saveLocationToCache(clientId, locationData);
 
-            log.debug("位置数据已保存到Redis: clientId={}", clientId);
+            // 持久化到 MySQL
+            LocationRecord record = new LocationRecord();
+            record.setDeviceId(clientId);
+            record.setLatitude(message.getLatitude() != null
+                    ? BigDecimal.valueOf(message.getLatitude()) : null);
+            record.setLongitude(message.getLongitude() != null
+                    ? BigDecimal.valueOf(message.getLongitude()) : null);
+            record.setAltitude(message.getAltitude());
+            record.setSpeed(message.getSpeed());
+            record.setDirection(message.getDirection());
+            record.setAlarmFlag(message.getAlarmFlag());
+            record.setStatusFlag(message.getStatusFlag());
+            record.setLocationTime(LocalDateTime.now());
+            record.setCreateTime(LocalDateTime.now());
+            locationRepository.saveLocation(record);
+
+            log.debug("位置数据已保存: clientId={}", clientId);
         } catch (Exception e) {
             log.error("保存位置数据失败: clientId={}", message.getClientId(), e);
         }
     }
 
     /**
-     * 处理报警信息
+     * 处理报警信息，直接写入 MySQL（不能丢失）
      */
-    private void processAlarms(T0200 message, Session session) {
+    private void processAlarms(T0200 message) {
         long alarmFlag = message.getAlarmFlag();
         String clientId = message.getClientId();
 
         log.warn("检测到报警: clientId={}, alarmFlag=0x{}", clientId, Long.toHexString(alarmFlag));
 
-        // 将报警信息保存到Redis（可以后续由告警服务处理）
-        String alarmKey = "device:alarm:" + clientId + ":" + System.currentTimeMillis();
-        redisTemplate.opsForHash().put(alarmKey, "alarmFlag", alarmFlag);
-        redisTemplate.opsForHash().put(alarmKey, "latitude", message.getLatitude());
-        redisTemplate.opsForHash().put(alarmKey, "longitude", message.getLongitude());
-        redisTemplate.opsForHash().put(alarmKey, "timestamp", System.currentTimeMillis());
+        AlarmRecord record = new AlarmRecord();
+        record.setDeviceId(clientId);
+        record.setAlarmType((int) alarmFlag);
+        record.setAlarmLevel(2); // 默认重要级别
+        record.setAlarmContent("报警标志: 0x" + Long.toHexString(alarmFlag));
+        record.setLatitude(message.getLatitude() != null
+                ? BigDecimal.valueOf(message.getLatitude()) : null);
+        record.setLongitude(message.getLongitude() != null
+                ? BigDecimal.valueOf(message.getLongitude()) : null);
+        record.setAltitude(message.getAltitude());
+        record.setAlarmTime(LocalDateTime.now());
+        record.setHandled(false);
+        record.setCreateTime(LocalDateTime.now());
+
+        alarmRepository.saveAlarm(record);
     }
 
     @Override

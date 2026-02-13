@@ -84,18 +84,6 @@ mybatis-plus:
   mapper-locations: classpath:mapper/*.xml
   type-aliases-package: com.lk.jtt808.common.entity
 
-# Netty配置
-netty:
-  port: 8082
-  boss-threads: 1
-  worker-threads: 8
-  keep-alive: true
-  tcp-no-delay: true
-  back-log: 1024
-  buffer-size: 65536
-  so-rcvbuf: 65536
-  so-sndbuf: 65536
-
 # JTT808协议配置
 jtt808:
   # 请求超时时间（秒）
@@ -112,6 +100,22 @@ jtt808:
   reconnect-interval: 10
   # 最大重连次数
   max-reconnect-times: 5
+
+  # 注册超时（秒）
+  registration:
+    timeout-seconds: 30
+
+  # 传输层配置
+  transport:
+    tcp:
+      enabled: true
+      port: 8082
+      reader-idle-seconds: 180
+      read-timeout-seconds: 300
+    udp:
+      enabled: false
+      port: 8083
+      session-timeout-seconds: 300
 
 # 日志配置
 logging:

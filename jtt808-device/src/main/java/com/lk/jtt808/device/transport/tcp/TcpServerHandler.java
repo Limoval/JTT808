@@ -1,5 +1,4 @@
-package com.lk.jtt808.device.handler;
-
+package com.lk.jtt808.device.transport.tcp;
 
 import com.lk.jtt808.device.session.Session;
 import com.lk.jtt808.device.session.SessionManager;
@@ -13,37 +12,36 @@ import io.netty.handler.timeout.IdleState;
 import io.netty.handler.timeout.IdleStateEvent;
 import io.netty.util.AttributeKey;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.stereotype.Component;
 
 import java.net.InetSocketAddress;
 import java.util.concurrent.TimeUnit;
 
 /**
- * JTT808 TCP 连接处理器
- * 管理 TCP 连接生命周期，消息处理委托给 MessageProcessor
+ * TCP 连接生命周期处理器
+ * 管理 TCP 连接的创建、销毁和空闲检测
+ * 消息处理委托给 MessageProcessor
  */
 @Slf4j
-@Component
 @ChannelHandler.Sharable
-public class JTT808ServerHandler extends SimpleChannelInboundHandler<JT808Message> {
+public class TcpServerHandler extends SimpleChannelInboundHandler<JT808Message> {
 
     private static final AttributeKey<Session> SESSION_KEY = AttributeKey.valueOf("session");
 
     private final SessionManager sessionManager;
     private final MessageProcessor messageProcessor;
+    private final int registrationTimeoutSeconds;
 
-    @Value("${jtt808.registration.timeout-seconds:30}")
-    private int registrationTimeoutSeconds;
-
-    public JTT808ServerHandler(SessionManager sessionManager, MessageProcessor messageProcessor) {
+    public TcpServerHandler(SessionManager sessionManager,
+                            MessageProcessor messageProcessor,
+                            int registrationTimeoutSeconds) {
         this.sessionManager = sessionManager;
         this.messageProcessor = messageProcessor;
+        this.registrationTimeoutSeconds = registrationTimeoutSeconds;
     }
 
     @Override
     public void channelActive(ChannelHandlerContext ctx) throws Exception {
-        log.info("新连接: {}", ctx.channel().remoteAddress());
+        log.info("新TCP连接: {}", ctx.channel().remoteAddress());
         Session session = sessionManager.createTcpSession(ctx.channel());
         ctx.channel().attr(SESSION_KEY).set(session);
         scheduleConnectionTimeout(ctx, session);
@@ -74,13 +72,12 @@ public class JTT808ServerHandler extends SimpleChannelInboundHandler<JT808Messag
             return;
         }
 
-        // 委托给 MessageProcessor 处理（传输无关逻辑）
         messageProcessor.process(message, session);
     }
 
     @Override
     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
-        log.error("发生异常: {}", cause.getMessage());
+        log.error("TCP连接异常: {}", cause.getMessage());
         ctx.close();
     }
 
@@ -90,7 +87,7 @@ public class JTT808ServerHandler extends SimpleChannelInboundHandler<JT808Messag
             if (event.state() == IdleState.READER_IDLE) {
                 Session session = getSessionFromChannel(ctx.channel());
                 String identifier = session != null ? session.getClientId() : ctx.channel().remoteAddress().toString();
-                log.warn("连接空闲超时: {}", identifier);
+                log.warn("TCP连接空闲超时: {}", identifier);
                 ctx.close();
             }
         }

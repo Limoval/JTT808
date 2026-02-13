@@ -1,58 +1,95 @@
 package com.lk.jtt808.device.netty;
 
+import com.lk.jtt808.device.handler.JTT808ServerHandler;
+import com.lk.jtt808.device.session.SessionManager;
+import com.lk.jtt808.device.transport.MessageProcessor;
+import com.lk.jtt808.device.transport.TransportServer;
+import com.lk.jtt808.device.transport.tcp.TcpChannelInitializer;
+import com.lk.jtt808.device.transport.tcp.TcpServerHandler;
+import com.lk.jtt808.device.transport.tcp.TcpTransportServer;
 import com.lk.jtt808.protocol.annotation.MessageHandlerRegistry;
-import io.netty.bootstrap.ServerBootstrap;
-import io.netty.channel.ChannelFuture;
-import io.netty.channel.ChannelOption;
-import io.netty.channel.EventLoopGroup;
-import io.netty.channel.nio.NioEventLoopGroup;
-import io.netty.channel.socket.nio.NioServerSocketChannel;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 
+/**
+ * Netty 服务引导类
+ * 根据配置启动 TCP 和/或 UDP 传输服务器
+ */
 @Component
+@Slf4j
 public class NettyServer {
-    @Value("${netty.port:8081}")
-    private int port;
 
-    private EventLoopGroup bossGroup;
-    private EventLoopGroup workerGroup;
+    @Value("${jtt808.transport.tcp.port:8082}")
+    private int tcpPort;
 
-    private final NettyChannelInitializer nettyChannelInitializer;
+    @Value("${jtt808.transport.tcp.enabled:true}")
+    private boolean tcpEnabled;
 
-    public NettyServer(NettyChannelInitializer nettyChannelInitializer) {
-        this.nettyChannelInitializer = nettyChannelInitializer;
+    @Value("${jtt808.transport.tcp.reader-idle-seconds:180}")
+    private int readerIdleSeconds;
+
+    @Value("${jtt808.transport.tcp.read-timeout-seconds:300}")
+    private int readTimeoutSeconds;
+
+    @Value("${jtt808.registration.timeout-seconds:30}")
+    private int registrationTimeoutSeconds;
+
+    private final SessionManager sessionManager;
+    private final MessageProcessor messageProcessor;
+    private final NettyChannelInitializer legacyChannelInitializer;
+    private final JTT808ServerHandler legacyServerHandler;
+
+    private final List<TransportServer> transportServers = new ArrayList<>();
+
+    public NettyServer(SessionManager sessionManager,
+                       MessageProcessor messageProcessor,
+                       NettyChannelInitializer legacyChannelInitializer,
+                       JTT808ServerHandler legacyServerHandler) {
+        this.sessionManager = sessionManager;
+        this.messageProcessor = messageProcessor;
+        this.legacyChannelInitializer = legacyChannelInitializer;
+        this.legacyServerHandler = legacyServerHandler;
     }
 
     @PostConstruct
-    public void start() throws InterruptedException {
-        bossGroup = new NioEventLoopGroup(1); // 1个线程处理连接
-        workerGroup = new NioEventLoopGroup(); // 默认CPU核心数*2
-
+    public void start() throws Exception {
+        // 注册协议消息类型
         try {
             MessageHandlerRegistry.autoRegister("com.lk.jtt808.protocol.entity");
         } catch (IOException e) {
-            throw new RuntimeException(e);
+            throw new RuntimeException("协议消息注册失败", e);
         }
-        ServerBootstrap bootstrap = new ServerBootstrap();
-        bootstrap.group(bossGroup, workerGroup)
-                .channel(NioServerSocketChannel.class)
-                .childHandler(nettyChannelInitializer) // 自定义初始化器
-                .option(ChannelOption.SO_BACKLOG, 128)
-                .childOption(ChannelOption.SO_KEEPALIVE, true);
 
-        ChannelFuture future = bootstrap.bind(port).sync();
-        System.out.println("Netty服务端启动，端口：" + port);
+        // 启动 TCP 服务器
+        if (tcpEnabled) {
+            startTcpServer();
+        }
+
+        log.info("JTT808服务启动完成");
+    }
+
+    private void startTcpServer() throws Exception {
+        TcpServerHandler tcpServerHandler = new TcpServerHandler(
+                sessionManager, messageProcessor, registrationTimeoutSeconds);
+        TcpChannelInitializer tcpChannelInitializer = new TcpChannelInitializer(
+                tcpServerHandler, readerIdleSeconds, readTimeoutSeconds);
+
+        TcpTransportServer tcpServer = new TcpTransportServer(tcpPort, tcpChannelInitializer);
+        tcpServer.start();
+        transportServers.add(tcpServer);
     }
 
     @PreDestroy
     public void stop() {
-        bossGroup.shutdownGracefully();
-        workerGroup.shutdownGracefully();
-        System.out.println("Netty服务端关闭");
+        transportServers.forEach(TransportServer::stop);
+        transportServers.clear();
+        log.info("JTT808服务已关闭");
     }
 }
