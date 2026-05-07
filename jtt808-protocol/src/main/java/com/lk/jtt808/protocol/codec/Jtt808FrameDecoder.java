@@ -5,6 +5,7 @@ import io.netty.buffer.ByteBufUtil;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.ByteToMessageDecoder;
+import io.netty.handler.codec.TooLongFrameException;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.List;
@@ -14,6 +15,20 @@ public class Jtt808FrameDecoder extends ByteToMessageDecoder {
 
     private static final byte DELIMITER = 0x7E;
     private static final byte ESCAPE = 0x7D;
+    private static final int DEFAULT_MAX_FRAME_LENGTH = 4096;
+
+    private final int maxFrameLength;
+
+    public Jtt808FrameDecoder() {
+        this(DEFAULT_MAX_FRAME_LENGTH);
+    }
+
+    public Jtt808FrameDecoder(int maxFrameLength) {
+        if (maxFrameLength <= 0) {
+            throw new IllegalArgumentException("maxFrameLength must be positive");
+        }
+        this.maxFrameLength = maxFrameLength;
+    }
 
     @Override
     protected void decode(ChannelHandlerContext ctx, ByteBuf in, List<Object> out) {
@@ -24,13 +39,40 @@ public class Jtt808FrameDecoder extends ByteToMessageDecoder {
         }
 
         int startIndex = in.indexOf(in.readerIndex(), in.writerIndex(), DELIMITER);
-        if (startIndex == -1) return;
+        if (startIndex == -1) {
+            if (in.readableBytes() > maxFrameLength) {
+                log.warn("丢弃无起始符的超长TCP数据: length={}", in.readableBytes());
+                in.skipBytes(in.readableBytes());
+            }
+            return;
+        }
+
+        if (startIndex > in.readerIndex()) {
+            int discardLength = startIndex - in.readerIndex();
+            log.debug("丢弃JT808帧起始符前的TCP数据: length={}", discardLength);
+            in.readerIndex(startIndex);
+        }
 
         int endIndex = in.indexOf(startIndex + 1, in.writerIndex(), DELIMITER);
-        if (endIndex == -1) return;
+        if (endIndex == -1) {
+            int pendingLength = in.writerIndex() - startIndex;
+            if (pendingLength > maxFrameLength) {
+                in.readerIndex(in.writerIndex());
+                throw new TooLongFrameException("JT808 frame length exceeds " + maxFrameLength
+                        + " bytes without end delimiter");
+            }
+            return;
+        }
+
+        int frameLength = endIndex - startIndex + 1;
+        if (frameLength > maxFrameLength) {
+            in.readerIndex(endIndex + 1);
+            throw new TooLongFrameException("JT808 frame length exceeds " + maxFrameLength
+                    + " bytes: " + frameLength);
+        }
 
         // 提取帧数据（包含起始和结束标志）
-        ByteBuf frame = in.retainedSlice(startIndex, endIndex - startIndex + 1);
+        ByteBuf frame = in.retainedSlice(startIndex, frameLength);
         in.readerIndex(endIndex + 1);
 
         // 反转义

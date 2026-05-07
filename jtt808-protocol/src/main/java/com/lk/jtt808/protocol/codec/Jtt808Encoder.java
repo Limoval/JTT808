@@ -18,6 +18,8 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public class Jtt808Encoder extends MessageToByteEncoder<JT808Message> {
 
+    private static final int MAX_BODY_LENGTH = 0x3FF;
+
     /** 2013版本协议 */
     private static final int PROTOCOL_VERSION_2013 = 2013;
     /** 2019版本协议 */
@@ -29,34 +31,46 @@ public class Jtt808Encoder extends MessageToByteEncoder<JT808Message> {
         ByteBuf bodyBuf = ctx.alloc().buffer();
         try {
             MessageConverter.toByteBuf(bodyBuf, msg);
+            int bodyLength = bodyBuf.readableBytes();
+            if (bodyLength > MAX_BODY_LENGTH) {
+                throw new IllegalArgumentException("JT808 message body too large: messageId=0x"
+                        + Integer.toHexString(getMessageId(msg))
+                        + ", bodyLength=" + bodyLength
+                        + ", max=" + MAX_BODY_LENGTH
+                        + ". Subpackage encoding is not implemented yet.");
+            }
 
             // 2. 构建消息头（根据协议版本选择不同的构建方式）
-            ByteBuf headerBuf = buildMessageHeader(ctx, msg, bodyBuf.readableBytes());
-
-            // 3. 合并消息头和消息体
-            ByteBuf messageBuf = ctx.alloc().compositeBuffer(2)
-                    .addComponent(true, headerBuf)
-                    .addComponent(true, bodyBuf);
-
-            // 4. 计算校验码
-            byte checkCode = calculateCheckCode(messageBuf);
-
-            // 5. 构建完整报文
-            ByteBuf finalBuf = ctx.alloc().buffer();
+            ByteBuf headerBuf = buildMessageHeader(ctx, msg, bodyLength);
             try {
-                finalBuf.writeBytes(messageBuf);
-                finalBuf.writeByte(checkCode);
-                escapeData(finalBuf, byteBuf);
+                // 3. 合并消息头和消息体，计算校验码
+                ByteBuf messageBuf = ctx.alloc().buffer(headerBuf.readableBytes() + bodyLength);
+                try {
+                    messageBuf.writeBytes(headerBuf, headerBuf.readerIndex(), headerBuf.readableBytes());
+                    messageBuf.writeBytes(bodyBuf, bodyBuf.readerIndex(), bodyLength);
+                    byte checkCode = calculateCheckCode(messageBuf);
 
-                if (log.isDebugEnabled()) {
-                    ByteBuf copy = byteBuf.copy();
-                    String hexDump = ByteBufUtil.prettyHexDump(copy);
-                    log.debug("发送报文：\n{}", hexDump);
-                    copy.release();
+                    // 4. 构建完整报文
+                    ByteBuf finalBuf = ctx.alloc().buffer(messageBuf.readableBytes() + 3);
+                    try {
+                        finalBuf.writeBytes(messageBuf, messageBuf.readerIndex(), messageBuf.readableBytes());
+                        finalBuf.writeByte(checkCode);
+                        escapeData(finalBuf, byteBuf);
+
+                        if (log.isDebugEnabled()) {
+                            ByteBuf copy = byteBuf.copy();
+                            String hexDump = ByteBufUtil.prettyHexDump(copy);
+                            log.debug("发送报文：\n{}", hexDump);
+                            copy.release();
+                        }
+                    } finally {
+                        finalBuf.release();
+                    }
+                } finally {
+                    messageBuf.release();
                 }
-
             } finally {
-                finalBuf.release();
+                headerBuf.release();
             }
         } finally {
             bodyBuf.release();
