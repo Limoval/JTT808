@@ -13,12 +13,15 @@ import com.lk.jtt808.protocol.entity.JT808Response;
 import com.lk.jtt808.protocol.entity.base.AbstractGenericResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 
 @Service
 @Slf4j
@@ -29,6 +32,10 @@ public class CommandServiceImpl implements CommandService {
 
     @Autowired
     private CommandRecordRepository commandRecordRepository;
+
+    @Autowired
+    @Qualifier("taskExecutor")
+    private Executor taskExecutor;
 
     @Override
     public Long sendCommand(String deviceId, JT808Message message, Class<? extends JT808Response> responseClass, Duration timeout) {
@@ -56,15 +63,8 @@ public class CommandServiceImpl implements CommandService {
                         deviceId, Integer.toHexString(message.getMessageId()));
                 return;
             }
-            try {
-                CommandRecord sentRecord = new CommandRecord();
-                sentRecord.setId(callbackCommandId);
-                sentRecord.setStatus(CommandStatusEnum.SENT.getCode());
-                commandRecordRepository.updateCommand(sentRecord);
-                log.debug("命令状态更新为 SENT: commandId={}", callbackCommandId);
-            } catch (Exception e) {
-                log.error("更新命令 SENT 状态失败: commandId={}", callbackCommandId, e);
-            }
+            updateCommandAsync(callbackCommandId, "SENT", sentRecord ->
+                    sentRecord.setStatus(CommandStatusEnum.SENT.getCode()));
         });
 
         // 1. 保存命令记录为 PENDING。sendRequest 会先同步执行出站拦截器，因此这里能拿到流水号。
@@ -82,44 +82,54 @@ public class CommandServiceImpl implements CommandService {
         responseMono.subscribe(
                 response -> {
                     // 3. 收到响应
-                    try {
-                        CommandStatusEnum finalStatus = CommandStatusEnum.SUCCESS;
-                        Integer resultCode = null;
-                        if (response instanceof AbstractGenericResponse resp) {
-                            resultCode = resp.getResultCode();
-                            if (resp.isFailure() || resp.isMessageError() || resp.isNotSupport()) {
-                                finalStatus = CommandStatusEnum.FAILED;
-                            }
+                    CommandStatusEnum finalStatus = CommandStatusEnum.SUCCESS;
+                    Integer resultCode = null;
+                    if (response instanceof AbstractGenericResponse resp) {
+                        resultCode = resp.getResultCode();
+                        if (resp.isFailure() || resp.isMessageError() || resp.isNotSupport()) {
+                            finalStatus = CommandStatusEnum.FAILED;
                         }
-                        CommandRecord resultRecord = new CommandRecord();
-                        resultRecord.setId(commandId);
-                        resultRecord.setStatus(finalStatus.getCode());
-                        resultRecord.setResponseTime(LocalDateTime.now());
-                        resultRecord.setResult(resultCode);
-                        commandRecordRepository.updateCommand(resultRecord);
-                        log.info("命令执行完成: commandId={}, status={}", commandId, finalStatus);
-                    } catch (Exception e) {
-                        log.error("更新命令响应状态失败: commandId={}", commandId, e);
                     }
+                    CommandStatusEnum statusToSave = finalStatus;
+                    Integer resultCodeToSave = resultCode;
+                    updateCommandAsync(commandId, statusToSave.name(), resultRecord -> {
+                        resultRecord.setStatus(statusToSave.getCode());
+                        resultRecord.setResponseTime(LocalDateTime.now());
+                        resultRecord.setResult(resultCodeToSave);
+                    });
+                    log.info("命令执行完成: commandId={}, status={}", commandId, finalStatus);
                 },
                 error -> {
                     // 4. 超时或异常
-                    try {
-                        CommandStatusEnum errorStatus = error instanceof java.util.concurrent.TimeoutException
-                                ? CommandStatusEnum.TIMEOUT : CommandStatusEnum.FAILED;
-                        CommandRecord errorRecord = new CommandRecord();
-                        errorRecord.setId(commandId);
+                    CommandStatusEnum errorStatus = error instanceof java.util.concurrent.TimeoutException
+                            ? CommandStatusEnum.TIMEOUT : CommandStatusEnum.FAILED;
+                    updateCommandAsync(commandId, errorStatus.name(), errorRecord -> {
                         errorRecord.setStatus(errorStatus.getCode());
                         errorRecord.setResponseTime(LocalDateTime.now());
-                        commandRecordRepository.updateCommand(errorRecord);
-                        log.warn("命令执行失败: commandId={}, status={}, error={}", commandId, errorStatus, error.getMessage());
-                    } catch (Exception e) {
-                        log.error("更新命令失败状态失败: commandId={}", commandId, e);
-                    }
+                    });
+                    log.warn("命令执行失败: commandId={}, status={}, error={}", commandId, errorStatus, error.getMessage());
                 }
         );
 
         return commandId;
+    }
+
+    private void updateCommandAsync(Long commandId, String stage, Consumer<CommandRecord> customizer) {
+        try {
+            taskExecutor.execute(() -> {
+                try {
+                    CommandRecord record = new CommandRecord();
+                    record.setId(commandId);
+                    customizer.accept(record);
+                    commandRecordRepository.updateCommand(record);
+                    log.debug("命令状态更新完成: commandId={}, stage={}", commandId, stage);
+                } catch (Exception e) {
+                    log.error("更新命令状态失败: commandId={}, stage={}", commandId, stage, e);
+                }
+            });
+        } catch (RuntimeException e) {
+            log.error("命令状态更新任务提交失败: commandId={}, stage={}", commandId, stage, e);
+        }
     }
 
     @Override

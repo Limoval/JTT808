@@ -6,11 +6,12 @@ import com.lk.jtt808.common.entity.Device;
 import com.lk.jtt808.device.mapper.DeviceMapper;
 import com.lk.jtt808.device.repository.DeviceRepository;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Repository;
 
 import java.time.LocalDateTime;
-import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
 
 @Repository
@@ -22,11 +23,14 @@ public class DeviceRepositoryImpl implements DeviceRepository {
 
     private final DeviceMapper deviceMapper;
     private final RedisTemplate<String, Object> redisTemplate;
+    private final Executor taskExecutor;
 
     public DeviceRepositoryImpl(DeviceMapper deviceMapper,
-                                RedisTemplate<String, Object> redisTemplate) {
+                                RedisTemplate<String, Object> redisTemplate,
+                                @Qualifier("taskExecutor") Executor taskExecutor) {
         this.deviceMapper = deviceMapper;
         this.redisTemplate = redisTemplate;
+        this.taskExecutor = taskExecutor;
     }
 
     @Override
@@ -54,17 +58,11 @@ public class DeviceRepositoryImpl implements DeviceRepository {
         String cacheKey = DEVICE_CACHE_PREFIX + deviceId;
         redisTemplate.delete(cacheKey);
 
-        // 异步更新 MySQL
-        CompletableFuture.runAsync(() -> {
-            try {
+        runStateUpdate("更新设备状态", deviceId, () ->
                 deviceMapper.update(null, new LambdaUpdateWrapper<Device>()
                         .eq(Device::getDeviceId, deviceId)
                         .set(Device::getStatus, status)
-                        .set(Device::getUpdateTime, LocalDateTime.now()));
-            } catch (Exception e) {
-                log.error("异步更新设备状态失败: deviceId={}", deviceId, e);
-            }
-        });
+                        .set(Device::getUpdateTime, LocalDateTime.now())));
     }
 
     @Override
@@ -75,17 +73,11 @@ public class DeviceRepositoryImpl implements DeviceRepository {
         String cacheKey = DEVICE_CACHE_PREFIX + deviceId;
         redisTemplate.delete(cacheKey);
 
-        // 异步更新 MySQL
-        CompletableFuture.runAsync(() -> {
-            try {
+        runStateUpdate("更新心跳时间", deviceId, () ->
                 deviceMapper.update(null, new LambdaUpdateWrapper<Device>()
                         .eq(Device::getDeviceId, deviceId)
                         .set(Device::getLastHeartbeat, now)
-                        .set(Device::getUpdateTime, now));
-            } catch (Exception e) {
-                log.error("异步更新心跳时间失败: deviceId={}", deviceId, e);
-            }
-        });
+                        .set(Device::getUpdateTime, now)));
     }
 
     @Override
@@ -104,5 +96,36 @@ public class DeviceRepositoryImpl implements DeviceRepository {
         // 更新缓存
         String cacheKey = DEVICE_CACHE_PREFIX + device.getDeviceId();
         redisTemplate.opsForValue().set(cacheKey, device, CACHE_EXPIRE_HOURS, TimeUnit.HOURS);
+    }
+
+    private void runStateUpdate(String action, String deviceId, Runnable updateTask) {
+        try {
+            taskExecutor.execute(() -> {
+                int maxAttempts = 3;
+                for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+                    try {
+                        updateTask.run();
+                        return;
+                    } catch (Exception e) {
+                        if (attempt == maxAttempts) {
+                            log.error("{}失败且已达到最大重试次数: deviceId={}, attempts={}", action, deviceId, attempt, e);
+                        } else {
+                            log.warn("{}失败，准备重试: deviceId={}, attempt={}", action, deviceId, attempt, e);
+                            sleepBeforeRetry(attempt);
+                        }
+                    }
+                }
+            });
+        } catch (RuntimeException e) {
+            log.error("{}任务提交失败: deviceId={}", action, deviceId, e);
+        }
+    }
+
+    private void sleepBeforeRetry(int attempt) {
+        try {
+            Thread.sleep(200L * attempt);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 }

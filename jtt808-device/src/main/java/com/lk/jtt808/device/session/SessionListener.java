@@ -9,7 +9,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
-import java.util.concurrent.CompletableFuture;
 import java.util.function.BiConsumer;
 
 @Component
@@ -80,15 +79,8 @@ public class SessionListener {
      */
     private void handleDeviceOnline(Session session) {
         String clientId = session.getClientId();
-
-        CompletableFuture.runAsync(() -> {
-            try {
-                deviceRepository.updateStatus(clientId, DeviceStatusEnum.ONLINE.getCode());
-                log.info("设备上线处理完成: {}", clientId);
-            } catch (Exception e) {
-                log.error("设备上线处理异常: clientId={}", clientId, e);
-            }
-        });
+        deviceRepository.updateStatus(clientId, DeviceStatusEnum.ONLINE.getCode());
+        log.info("设备上线处理已提交: {}", clientId);
     }
 
     /**
@@ -96,14 +88,7 @@ public class SessionListener {
      */
     private void handleDeviceOffline(Session session) {
         String clientId = session.getClientId();
-
-        CompletableFuture.runAsync(() -> {
-            try {
-                deviceRepository.updateStatus(clientId, DeviceStatusEnum.OFFLINE.getCode());
-                log.info("设备离线处理完成: {}", clientId);
-            } catch (Exception e) {
-                log.error("设备离线处理异常: clientId={}", clientId, e);
-            }
-        });
+        deviceRepository.updateStatus(clientId, DeviceStatusEnum.OFFLINE.getCode());
+        log.info("设备离线处理已提交: {}", clientId);
     }
 }
