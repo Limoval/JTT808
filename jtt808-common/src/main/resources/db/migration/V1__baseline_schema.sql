@@ -1,13 +1,6 @@
--- ========================================
--- JTT808数据库表结构
--- ========================================
+-- JTT808 baseline schema managed by Flyway.
 
--- 创建数据库
-CREATE DATABASE IF NOT EXISTS jtt808 DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-USE jtt808;
-
--- 设备表
-CREATE TABLE device (
+CREATE TABLE IF NOT EXISTS device (
     id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '主键ID',
     device_id VARCHAR(20) UNIQUE NOT NULL COMMENT '终端手机号',
     device_name VARCHAR(100) COMMENT '设备名称',
@@ -28,8 +21,7 @@ CREATE TABLE device (
     INDEX idx_last_heartbeat (last_heartbeat)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='设备信息表';
 
--- 位置记录表
-CREATE TABLE location_record (
+CREATE TABLE IF NOT EXISTS location_record (
     id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '主键ID',
     device_id VARCHAR(20) NOT NULL COMMENT '终端手机号',
     latitude DECIMAL(10,7) COMMENT '纬度',
@@ -51,8 +43,7 @@ CREATE TABLE location_record (
     INDEX idx_device_id (device_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='位置记录表';
 
--- 报警记录表
-CREATE TABLE alarm_record (
+CREATE TABLE IF NOT EXISTS alarm_record (
     id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '主键ID',
     device_id VARCHAR(20) NOT NULL COMMENT '终端手机号',
     alarm_type INT NOT NULL COMMENT '报警类型',
@@ -73,8 +64,7 @@ CREATE TABLE alarm_record (
     INDEX idx_alarm_time (alarm_time)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='报警记录表';
 
--- 终端注册应答表
-CREATE TABLE terminal_register (
+CREATE TABLE IF NOT EXISTS terminal_register (
     id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '主键ID',
     device_id VARCHAR(20) UNIQUE NOT NULL COMMENT '终端手机号',
     province_id VARCHAR(10) COMMENT '省域ID',
@@ -92,8 +82,7 @@ CREATE TABLE terminal_register (
     INDEX idx_register_time (register_time)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='终端注册表';
 
--- 终端参数表
-CREATE TABLE terminal_param (
+CREATE TABLE IF NOT EXISTS terminal_param (
     id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '主键ID',
     device_id VARCHAR(20) NOT NULL COMMENT '终端手机号',
     param_id INT NOT NULL COMMENT '参数ID',
@@ -104,8 +93,7 @@ CREATE TABLE terminal_param (
     INDEX idx_device_id (device_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='终端参数表';
 
--- 命令下发记录表
-CREATE TABLE command_record (
+CREATE TABLE IF NOT EXISTS command_record (
     id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '主键ID',
     device_id VARCHAR(20) NOT NULL COMMENT '终端手机号',
     command_type INT NOT NULL COMMENT '命令类型',
@@ -121,10 +109,3 @@ CREATE TABLE command_record (
     INDEX idx_status (status),
     INDEX idx_result (result)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='命令下发记录表';
-
--- 添加外键约束（可选，根据业务需要）
--- ALTER TABLE location_record ADD CONSTRAINT fk_location_device FOREIGN KEY (device_id) REFERENCES device(device_id);
--- ALTER TABLE alarm_record ADD CONSTRAINT fk_alarm_device FOREIGN KEY (device_id) REFERENCES device(device_id);
--- ALTER TABLE terminal_register ADD CONSTRAINT fk_register_device FOREIGN KEY (device_id) REFERENCES device(device_id);
--- ALTER TABLE terminal_param ADD CONSTRAINT fk_param_device FOREIGN KEY (device_id) REFERENCES device(device_id);
--- ALTER TABLE command_record ADD CONSTRAINT fk_command_device FOREIGN KEY (device_id) REFERENCES device(device_id);

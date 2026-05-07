@@ -53,6 +53,16 @@ jtt808-common    (纯数据层, DTO/Entity/Enum)
 jtt808-admin  (Management REST API, 端口 8080, 通过 Feign 调用 device)
 ```
 
+### 1.2.1 当前服务边界
+
+当前阶段保持 admin 与 device 拆分，但不把它们设计成完全自治的微服务：
+
+- `jtt808-device` 拥有设备运行态、Netty 会话、注册鉴权、命令下发、实时位置写入等核心写模型。
+- `jtt808-admin` 作为管理查询侧，允许直接读取 MySQL 查询模型展示设备、位置、报警数据。
+- admin 下发命令、查询在线态必须通过 device 内部 API，因为这些能力依赖 device 进程内会话。
+- admin 不直接修改设备在线状态、命令状态、会话状态；这些状态由 device 统一维护。
+- 如果后续需要多 device 实例或完全微服务化，应把运行态抽到 Redis/消息总线/专用查询 API，而不是继续扩大共享数据库写入面。
+
 ### 1.3 技术选型说明
 
 | 组件 | 选型 | 理由 |

@@ -3,7 +3,6 @@ package com.lk.jtt808.protocol.converter;
 import com.lk.jtt808.protocol.cache.FieldMetadata;
 import com.lk.jtt808.protocol.entity.T0200;
 import io.netty.buffer.ByteBuf;
-import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -12,7 +11,6 @@ import java.util.List;
  * 附加信息转换器
  * 解析T0200位置信息中的附加信息列表
  */
-@Component
 public class AdditionalInfoConverter implements FieldConverter {
 
     @Override
