@@ -11,6 +11,7 @@ import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.MessageToMessageDecoder;
 import lombok.extern.slf4j.Slf4j;
 
+import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -18,7 +19,7 @@ import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 @Slf4j
-public class Jtt808MessageDecoder extends MessageToMessageDecoder<ByteBuf> {
+public class Jtt808MessageDecoder extends MessageToMessageDecoder<Object> {
 
     /** 分包消息缓存（带TTL和容量限制，防止内存泄漏） */
     private final Cache<String, Map<Integer, byte[]>> packageCache = Caffeine.newBuilder()
@@ -34,9 +35,24 @@ public class Jtt808MessageDecoder extends MessageToMessageDecoder<ByteBuf> {
             .build();
 
     @Override
-    protected void decode(ChannelHandlerContext ctx, ByteBuf msg, List<Object> out) throws Exception {
+    protected void decode(ChannelHandlerContext ctx, Object msg, List<Object> out) throws Exception {
+        ByteBuf source;
+        InetSocketAddress remoteAddress = null;
+        boolean releaseSource = false;
+
+        if (msg instanceof ByteBuf byteBuf) {
+            source = byteBuf;
+        } else if (msg instanceof UdpPacketFrame udpFrame) {
+            source = udpFrame.content();
+            remoteAddress = udpFrame.sender();
+            releaseSource = true;
+        } else {
+            throw new IllegalArgumentException("Unsupported JT808 decoder input type: "
+                    + (msg == null ? "null" : msg.getClass().getName()));
+        }
+
         // 复制一份ByteBuf以便解码过程中不影响原始数据
-        ByteBuf in = msg.copy();
+        ByteBuf in = source.copy();
         try {
             // 解码JT808消息
             JT808Message message = decode(in);
@@ -46,11 +62,15 @@ public class Jtt808MessageDecoder extends MessageToMessageDecoder<ByteBuf> {
 
             // 如果解码成功且消息有效，添加到输出列表
             if (message != null) {
+                message.setRemoteAddress(remoteAddress);
                 out.add(message);
             }
         } finally {
             if (in.refCnt() > 0) {
                 in.release();
+            }
+            if (releaseSource && source.refCnt() > 0) {
+                source.release();
             }
         }
     }

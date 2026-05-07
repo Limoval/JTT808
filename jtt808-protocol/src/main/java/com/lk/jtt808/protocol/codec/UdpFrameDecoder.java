@@ -6,7 +6,6 @@ import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.socket.DatagramPacket;
 import io.netty.handler.codec.MessageToMessageDecoder;
-import io.netty.util.AttributeKey;
 import lombok.extern.slf4j.Slf4j;
 
 import java.net.InetSocketAddress;
@@ -22,8 +21,6 @@ public class UdpFrameDecoder extends MessageToMessageDecoder<DatagramPacket> {
 
     private static final byte DELIMITER = 0x7E;
     private static final byte ESCAPE = 0x7D;
-    private static final AttributeKey<InetSocketAddress> SENDER_KEY = AttributeKey.valueOf("udp_sender");
-
     @Override
     protected void decode(ChannelHandlerContext ctx, DatagramPacket packet, List<Object> out) {
         ByteBuf content = packet.content();
@@ -32,9 +29,6 @@ public class UdpFrameDecoder extends MessageToMessageDecoder<DatagramPacket> {
         if (log.isDebugEnabled()) {
             log.debug("UDP收到报文: sender={}, hex={}", sender, ByteBufUtil.hexDump(content));
         }
-
-        // 存储发送者地址到 Channel Attribute
-        ctx.channel().attr(SENDER_KEY).set(sender);
 
         if (content.readableBytes() < 2) {
             log.warn("UDP报文太短，忽略: sender={}", sender);
@@ -62,7 +56,7 @@ public class UdpFrameDecoder extends MessageToMessageDecoder<DatagramPacket> {
 
         // 校验
         if (verify(unescaped)) {
-            out.add(unescaped);
+            out.add(new UdpPacketFrame(unescaped, sender));
         } else {
             log.warn("UDP报文校验失败: sender={}", sender);
             unescaped.release();

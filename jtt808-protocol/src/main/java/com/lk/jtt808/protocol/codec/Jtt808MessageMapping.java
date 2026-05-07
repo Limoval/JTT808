@@ -46,6 +46,7 @@ public class Jtt808MessageMapping extends MessageToMessageDecoder<JT808Message> 
                 message.setPackageIndex(jtMsg.getPackageIndex());
                 message.setMessageBody(jtMsg.getMessageBody());
                 message.setVerified(jtMsg.isVerified());
+                message.setRemoteAddress(jtMsg.getRemoteAddress());
                 log.debug("消息映射结果:{}", message);
             } finally {
                 bodyBuf.release();

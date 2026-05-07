@@ -8,6 +8,7 @@ import io.netty.channel.ChannelInitializer;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.handler.timeout.IdleStateHandler;
 import io.netty.handler.timeout.ReadTimeoutHandler;
+import io.netty.util.concurrent.EventExecutorGroup;
 
 import java.util.concurrent.TimeUnit;
 
@@ -20,13 +21,22 @@ public class TcpChannelInitializer extends ChannelInitializer<SocketChannel> {
     private final TcpServerHandler tcpServerHandler;
     private final int readerIdleSeconds;
     private final int readTimeoutSeconds;
+    private final EventExecutorGroup businessExecutorGroup;
 
     public TcpChannelInitializer(TcpServerHandler tcpServerHandler,
                                  int readerIdleSeconds,
                                  int readTimeoutSeconds) {
+        this(tcpServerHandler, readerIdleSeconds, readTimeoutSeconds, null);
+    }
+
+    public TcpChannelInitializer(TcpServerHandler tcpServerHandler,
+                                 int readerIdleSeconds,
+                                 int readTimeoutSeconds,
+                                 EventExecutorGroup businessExecutorGroup) {
         this.tcpServerHandler = tcpServerHandler;
         this.readerIdleSeconds = readerIdleSeconds;
         this.readTimeoutSeconds = readTimeoutSeconds;
+        this.businessExecutorGroup = businessExecutorGroup;
     }
 
     @Override
@@ -37,7 +47,12 @@ public class TcpChannelInitializer extends ChannelInitializer<SocketChannel> {
                 .addLast(new Jtt808FrameDecoder())
                 .addLast(new Jtt808MessageDecoder())
                 .addLast(new Jtt808MessageMapping())
-                .addLast(new Jtt808Encoder())
-                .addLast(tcpServerHandler);
+                .addLast(new Jtt808Encoder());
+
+        if (businessExecutorGroup != null) {
+            ch.pipeline().addLast(businessExecutorGroup, tcpServerHandler);
+        } else {
+            ch.pipeline().addLast(tcpServerHandler);
+        }
     }
 }

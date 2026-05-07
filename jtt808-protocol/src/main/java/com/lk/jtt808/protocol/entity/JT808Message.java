@@ -2,6 +2,8 @@ package com.lk.jtt808.protocol.entity;
 
 import lombok.Data;
 
+import java.net.InetSocketAddress;
+
 @Data
 public class JT808Message {
     private int messageId;          // 消息ID
@@ -17,5 +19,6 @@ public class JT808Message {
     private byte[] messageBody;     // 消息体
     private boolean verified;       // 校验是否通过
     private int outboundSerialNo;       // 出站流水号
+    private transient InetSocketAddress remoteAddress; // UDP 等无连接传输的发送方地址
 
 }

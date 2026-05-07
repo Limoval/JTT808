@@ -56,6 +56,9 @@ public class UdpTransportServer implements TransportServer {
         if (workerGroup != null) {
             workerGroup.shutdownGracefully();
         }
+        if (channelInitializer instanceof UdpChannelInitializer udpChannelInitializer) {
+            udpChannelInitializer.shutdown();
+        }
         log.info("UDP服务器已关闭, 端口: {}", port);
     }
 

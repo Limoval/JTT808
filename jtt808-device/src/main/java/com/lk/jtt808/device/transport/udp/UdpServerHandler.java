@@ -5,11 +5,9 @@ import com.lk.jtt808.device.session.SessionManager;
 import com.lk.jtt808.device.transport.MessageProcessor;
 import com.lk.jtt808.device.transport.TransportType;
 import com.lk.jtt808.protocol.entity.JT808Message;
-import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.SimpleChannelInboundHandler;
-import io.netty.util.AttributeKey;
 import lombok.extern.slf4j.Slf4j;
 
 import java.net.InetSocketAddress;
@@ -26,8 +24,6 @@ import java.util.concurrent.TimeUnit;
 @Slf4j
 @ChannelHandler.Sharable
 public class UdpServerHandler extends SimpleChannelInboundHandler<JT808Message> {
-
-    private static final AttributeKey<InetSocketAddress> SENDER_KEY = AttributeKey.valueOf("udp_sender");
 
     private final SessionManager sessionManager;
     private final MessageProcessor messageProcessor;
@@ -61,8 +57,7 @@ public class UdpServerHandler extends SimpleChannelInboundHandler<JT808Message> 
 
     @Override
     protected void channelRead0(ChannelHandlerContext ctx, JT808Message message) {
-        // 从消息属性获取发送者地址（由 UdpFrameDecoder 设置）
-        InetSocketAddress sender = ctx.channel().attr(SENDER_KEY).get();
+        InetSocketAddress sender = message.getRemoteAddress();
         if (sender == null) {
             log.warn("UDP消息缺少发送者地址，忽略");
             return;
@@ -85,14 +80,6 @@ public class UdpServerHandler extends SimpleChannelInboundHandler<JT808Message> 
     @Override
     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
         log.error("UDP处理异常: {}", cause.getMessage());
-    }
-
-    /**
-     * 设置发送者地址到 Channel Attribute
-     * 由 UdpFrameDecoder 调用
-     */
-    public static void setSenderAddress(Channel channel, InetSocketAddress sender) {
-        channel.attr(SENDER_KEY).set(sender);
     }
 
     /**

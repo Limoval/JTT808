@@ -1,6 +1,5 @@
 package com.lk.jtt808.device.netty;
 
-import com.lk.jtt808.device.handler.JTT808ServerHandler;
 import com.lk.jtt808.device.session.SessionManager;
 import com.lk.jtt808.device.transport.MessageProcessor;
 import com.lk.jtt808.device.transport.TransportServer;
@@ -14,6 +13,8 @@ import com.lk.jtt808.protocol.annotation.MessageHandlerRegistry;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
+import io.netty.util.concurrent.DefaultEventExecutorGroup;
+import io.netty.util.concurrent.EventExecutorGroup;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -53,25 +54,25 @@ public class NettyServer {
     @Value("${jtt808.registration.timeout-seconds:30}")
     private int registrationTimeoutSeconds;
 
+    @Value("${jtt808.transport.business-threads:0}")
+    private int businessThreads;
+
     private final SessionManager sessionManager;
     private final MessageProcessor messageProcessor;
-    private final NettyChannelInitializer legacyChannelInitializer;
-    private final JTT808ServerHandler legacyServerHandler;
 
     private final List<TransportServer> transportServers = new ArrayList<>();
+    private EventExecutorGroup businessExecutorGroup;
 
     public NettyServer(SessionManager sessionManager,
-                       MessageProcessor messageProcessor,
-                       NettyChannelInitializer legacyChannelInitializer,
-                       JTT808ServerHandler legacyServerHandler) {
+                       MessageProcessor messageProcessor) {
         this.sessionManager = sessionManager;
         this.messageProcessor = messageProcessor;
-        this.legacyChannelInitializer = legacyChannelInitializer;
-        this.legacyServerHandler = legacyServerHandler;
     }
 
     @PostConstruct
     public void start() throws Exception {
+        initBusinessExecutor();
+
         // 注册协议消息类型
         try {
             MessageHandlerRegistry.autoRegister("com.lk.jtt808.protocol.entity");
@@ -96,7 +97,7 @@ public class NettyServer {
         TcpServerHandler tcpServerHandler = new TcpServerHandler(
                 sessionManager, messageProcessor, registrationTimeoutSeconds);
         TcpChannelInitializer tcpChannelInitializer = new TcpChannelInitializer(
-                tcpServerHandler, readerIdleSeconds, readTimeoutSeconds);
+                tcpServerHandler, readerIdleSeconds, readTimeoutSeconds, businessExecutorGroup);
 
         TcpTransportServer tcpServer = new TcpTransportServer(tcpPort, tcpChannelInitializer);
         tcpServer.start();
@@ -106,7 +107,8 @@ public class NettyServer {
     private void startUdpServer() throws Exception {
         UdpServerHandler udpServerHandler = new UdpServerHandler(
                 sessionManager, messageProcessor, udpSessionTimeoutSeconds);
-        UdpChannelInitializer udpChannelInitializer = new UdpChannelInitializer(udpServerHandler);
+        UdpChannelInitializer udpChannelInitializer = new UdpChannelInitializer(
+                udpServerHandler, businessExecutorGroup);
 
         UdpTransportServer udpServer = new UdpTransportServer(udpPort, udpChannelInitializer);
         udpServer.start();
@@ -117,6 +119,21 @@ public class NettyServer {
     public void stop() {
         transportServers.forEach(TransportServer::stop);
         transportServers.clear();
+        if (businessExecutorGroup != null) {
+            businessExecutorGroup.shutdownGracefully();
+            businessExecutorGroup = null;
+        }
         log.info("JTT808服务已关闭");
+    }
+
+    private void initBusinessExecutor() {
+        if (businessExecutorGroup != null) {
+            return;
+        }
+        int threads = businessThreads > 0
+                ? businessThreads
+                : Math.max(4, Runtime.getRuntime().availableProcessors());
+        businessExecutorGroup = new DefaultEventExecutorGroup(threads);
+        log.info("JTT808业务线程池初始化完成: threads={}", threads);
     }
 }
