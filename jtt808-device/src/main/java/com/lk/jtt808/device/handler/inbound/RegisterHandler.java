@@ -1,7 +1,10 @@
 package com.lk.jtt808.device.handler.inbound;
 
 
+import com.lk.jtt808.common.entity.Device;
 import com.lk.jtt808.common.entity.TerminalRegister;
+import com.lk.jtt808.common.enums.DeviceStatusEnum;
+import com.lk.jtt808.device.repository.DeviceRepository;
 import com.lk.jtt808.device.repository.TerminalRegisterRepository;
 import com.lk.jtt808.device.session.SessionManager;
 import com.lk.jtt808.device.transport.TransportSession;
@@ -15,6 +18,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.ObjectUtils;
 
 import java.time.LocalDateTime;
+import java.nio.charset.StandardCharsets;
 
 @Service
 @Slf4j
@@ -23,11 +27,14 @@ public class RegisterHandler extends AbstractInboundHandler<T0100> {
     public static final String AUTH_SALT = "hoDhqz5q";
 
     private final TerminalRegisterRepository terminalRegisterRepository;
+    private final DeviceRepository deviceRepository;
 
     public RegisterHandler(SessionManager sessionManager,
-                           TerminalRegisterRepository terminalRegisterRepository) {
+                           TerminalRegisterRepository terminalRegisterRepository,
+                           DeviceRepository deviceRepository) {
         super(sessionManager);
         this.terminalRegisterRepository = terminalRegisterRepository;
+        this.deviceRepository = deviceRepository;
     }
 
     @Override
@@ -62,6 +69,25 @@ public class RegisterHandler extends AbstractInboundHandler<T0100> {
             terminalRegisterRepository.save(register);
         } catch (Exception e) {
             log.error("保存终端注册信息失败: clientId={}", clientId, e);
+        }
+
+        // 创建/更新 device 主表记录（状态为 OFFLINE，鉴权后才 ONLINE）
+        try {
+            Device device = new Device();
+            device.setDeviceId(clientId);
+            device.setPhoneNumber(clientId);
+            device.setDeviceName(msg.getLicense());
+            if (msg.getProducerId() != null) {
+                device.setManufacturer(new String(msg.getProducerId(), StandardCharsets.UTF_8).trim());
+            }
+            if (msg.getTerminalType() != null) {
+                device.setModel(new String(msg.getTerminalType(), StandardCharsets.UTF_8).trim());
+            }
+            device.setStatus(DeviceStatusEnum.OFFLINE.getCode());
+            device.setProtocolVersion(String.valueOf(msg.getProtocolVersion()));
+            deviceRepository.saveOrUpdate(device);
+        } catch (Exception e) {
+            log.error("创建设备主表记录失败: clientId={}", clientId, e);
         }
 
         session.register(msg);

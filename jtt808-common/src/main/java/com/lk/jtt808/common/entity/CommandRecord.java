@@ -36,6 +36,9 @@ public class CommandRecord {
     @TableField("response_code")
     private Integer responseCode;     // 应答流水号
 
+    @TableField("status")
+    private Integer status;
+
     @TableField("result")
     private Integer result;           // 执行结果 0:成功 1:失败 2:消息有误 3:不支持 4:报警处理确认
 }

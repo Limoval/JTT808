@@ -37,8 +37,16 @@ public class Jtt808MessageMapping extends MessageToMessageDecoder<JT808Message> 
                 message.setMessageId(jtMsg.getMessageId());
                 message.setClientId(jtMsg.getClientId());
                 message.setProtocolVersion(jtMsg.getProtocolVersion());
+                message.setProtocolVersionByte(jtMsg.getProtocolVersionByte());
+                message.setBodyLength(jtMsg.getBodyLength());
+                message.setEncryptionType(jtMsg.getEncryptionType());
                 message.setInboundSerialNo(jtMsg.getInboundSerialNo());
-                log.info("消息映射结果:{}", message);
+                message.setSubpackage(jtMsg.isSubpackage());
+                message.setTotalPackage(jtMsg.getTotalPackage());
+                message.setPackageIndex(jtMsg.getPackageIndex());
+                message.setMessageBody(jtMsg.getMessageBody());
+                message.setVerified(jtMsg.isVerified());
+                log.debug("消息映射结果:{}", message);
             } finally {
                 bodyBuf.release();
             }

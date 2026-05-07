@@ -117,12 +117,14 @@ CREATE TABLE command_record (
     command_type INT NOT NULL COMMENT '命令类型',
     command_params TEXT COMMENT '命令参数',
     command_serial_no INT COMMENT '命令流水号',
+    status TINYINT DEFAULT 0 COMMENT '状态 0:PENDING 1:SENT 2:SUCCESS 3:FAILED 4:TIMEOUT',
     send_time DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '发送时间',
     response_time DATETIME COMMENT '响应时间',
     response_code TINYINT COMMENT '应答流水号',
     result TINYINT COMMENT '执行结果 0:成功 1:失败 2:消息有误 3:不支持 4:报警处理确认',
     INDEX idx_device_time (device_id, send_time),
     INDEX idx_command_type (command_type),
+    INDEX idx_status (status),
     INDEX idx_result (result)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='命令下发记录表';
 

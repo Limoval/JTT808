@@ -9,6 +9,7 @@ import com.lk.jtt808.protocol.entity.JT808Message;
 import com.lk.jtt808.protocol.entity.T8001;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
+import reactor.core.publisher.Mono;
 
 /**
  * 请求处理抽象类
@@ -27,6 +28,18 @@ public abstract class AbstractInboundHandler<T extends JT808Message> implements 
      * 默认为平台通用应答
      */
     public void reply(T message, TransportSession session, Integer code) {
+        sendReply(message, session, code)
+                .subscribe(
+                        ignored -> {
+                        },
+                        error -> log.error("发送平台通用应答失败: clientId={}", message.getClientId(), error));
+    }
+
+    protected Mono<Void> sendReply(T message, TransportSession session, Integer code) {
+        if (session == null) {
+            return Mono.error(new IllegalStateException("Session not found for clientId=" + message.getClientId()));
+        }
+
         T8001 t8001 = new T8001();
         BeanUtils.copyProperties(message, t8001);
         t8001.setMessageId(JT808.平台通用应答);
@@ -35,10 +48,9 @@ public abstract class AbstractInboundHandler<T extends JT808Message> implements 
         t8001.setResultCode(code);
         log.info("发送通用响应T8001 = {}", t8001);
 
-        session.sendNotification(t8001)
+        return session.sendNotification(t8001)
                 .doOnSuccess(success -> log.debug("平台通用应答发送成功: clientId={}", t8001.getClientId()))
-                .doOnError(error -> log.error("发送平台通用应答失败: clientId={}", t8001.getClientId(), error))
-                .subscribe();
+                .doOnError(error -> log.error("发送平台通用应答失败: clientId={}", t8001.getClientId(), error));
     }
 
     @Override

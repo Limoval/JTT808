@@ -94,20 +94,22 @@ public class Jtt808Encoder extends MessageToByteEncoder<JT808Message> {
         // 消息ID (2字节)
         headerBuf.writeShort(messageId);
 
-        // 消息体属性 (2字节)：消息体长度10位 + 加密方式2位 + 分包1位 + 保留3位
-        int attr = bodyLength & 0x3FF;  // 低10位为消息体长度
+        // 消息体属性 (2字节)：统一位域
+        // bit0-9: bodyLength, bit10-12: encryptionType, bit13: subpackage, bit14: versionFlag(0), bit15: reserved(0)
+        int attr = (bodyLength & 0x3FF)
+                | ((msg.getEncryptionType() & 0x07) << 10)
+                | ((msg.isSubpackage() ? 1 : 0) << 13);
         headerBuf.writeShort(attr);
 
-        // 终端手机号 (6字节 BCD码)
-        String clientId = String.format("%012d", Long.parseLong(msg.getClientId()));
-        byte[] terminalBytes = BcdUtil.stringToBcd(clientId);
+        // 终端手机号 (6字节 BCD码，固定12位数字，不足前补零)
+        byte[] terminalBytes = BcdUtil.stringToBcd(msg.getClientId(), 6);
         headerBuf.writeBytes(terminalBytes);
 
         // 流水号 (2字节)
         headerBuf.writeShort(msg.getOutboundSerialNo());
 
         log.debug("构建2013消息头: msgId=0x{}, bodyLen={}, clientId={}, serialNo={}",
-                Integer.toHexString(messageId), bodyLength, clientId, msg.getOutboundSerialNo());
+                Integer.toHexString(messageId), bodyLength, msg.getClientId(), msg.getOutboundSerialNo());
 
         return headerBuf;
     }
@@ -124,23 +126,30 @@ public class Jtt808Encoder extends MessageToByteEncoder<JT808Message> {
         // 消息ID (2字节)
         headerBuf.writeShort(messageId);
 
-        // 消息体属性 (2字节)：消息体长度12位 + 加密方式3位 + 分包1位 + 版本标识1位(固定为1)
-        int attr = (bodyLength & 0x0FFF) | (1 << 14);  // bit14=1表示2019版本
+        // 消息体属性 (2字节)：统一位域
+        // bit0-9: bodyLength, bit10-12: encryptionType, bit13: subpackage, bit14: versionFlag(1), bit15: reserved(0)
+        int attr = (bodyLength & 0x3FF)
+                | ((msg.getEncryptionType() & 0x07) << 10)
+                | ((msg.isSubpackage() ? 1 : 0) << 13)
+                | (1 << 14); // bit14 = 1 表示2019版本
         headerBuf.writeShort(attr);
 
-        // 协议版本号 (1字节)：固定为1
-        headerBuf.writeByte(1);
+        // 协议版本号 (1字节)：通常为 0x01
+        int protocolVersionByte = msg.getProtocolVersionByte();
+        if (protocolVersionByte == 0) {
+            protocolVersionByte = 0x01;
+        }
+        headerBuf.writeByte(protocolVersionByte);
 
-        // 终端手机号 (10字节 BCD码)
-        String clientId = String.format("%020d", new java.math.BigInteger(msg.getClientId()));
-        byte[] terminalBytes = BcdUtil.stringToBcd(clientId);
+        // 终端手机号 (10字节 BCD码，固定20位数字，不足前补零)
+        byte[] terminalBytes = BcdUtil.stringToBcd(msg.getClientId(), 10);
         headerBuf.writeBytes(terminalBytes);
 
         // 流水号 (2字节)
         headerBuf.writeShort(msg.getOutboundSerialNo());
 
         log.debug("构建2019消息头: msgId=0x{}, bodyLen={}, clientId={}, serialNo={}",
-                Integer.toHexString(messageId), bodyLength, clientId, msg.getOutboundSerialNo());
+                Integer.toHexString(messageId), bodyLength, msg.getClientId(), msg.getOutboundSerialNo());
 
         return headerBuf;
     }

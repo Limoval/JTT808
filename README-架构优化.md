@@ -67,7 +67,7 @@ JTT808 (父模块)
 ## 技术栈
 
 ### 基础技术
-- Java 25
+- Java 21
 - Spring Boot 3.5.8
 - Spring Cloud 2023.0.5
 - Spring Cloud Alibaba 2023.0.1.2
@@ -96,7 +96,7 @@ JTT808 (父模块)
 
 ### 1. 环境准备
 ```bash
-# 安装JDK 25
+# 安装JDK 21
 # 安装Maven 3.6+
 # 安装MySQL 8.0+
 # 安装Redis

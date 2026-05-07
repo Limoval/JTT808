@@ -7,6 +7,9 @@ import com.lk.jtt808.device.transport.TransportServer;
 import com.lk.jtt808.device.transport.tcp.TcpChannelInitializer;
 import com.lk.jtt808.device.transport.tcp.TcpServerHandler;
 import com.lk.jtt808.device.transport.tcp.TcpTransportServer;
+import com.lk.jtt808.device.transport.udp.UdpChannelInitializer;
+import com.lk.jtt808.device.transport.udp.UdpServerHandler;
+import com.lk.jtt808.device.transport.udp.UdpTransportServer;
 import com.lk.jtt808.protocol.annotation.MessageHandlerRegistry;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
@@ -37,6 +40,15 @@ public class NettyServer {
 
     @Value("${jtt808.transport.tcp.read-timeout-seconds:300}")
     private int readTimeoutSeconds;
+
+    @Value("${jtt808.transport.udp.port:8083}")
+    private int udpPort;
+
+    @Value("${jtt808.transport.udp.enabled:false}")
+    private boolean udpEnabled;
+
+    @Value("${jtt808.transport.udp.session-timeout-seconds:300}")
+    private int udpSessionTimeoutSeconds;
 
     @Value("${jtt808.registration.timeout-seconds:30}")
     private int registrationTimeoutSeconds;
@@ -72,6 +84,11 @@ public class NettyServer {
             startTcpServer();
         }
 
+        // 启动 UDP 服务器
+        if (udpEnabled) {
+            startUdpServer();
+        }
+
         log.info("JTT808服务启动完成");
     }
 
@@ -84,6 +101,16 @@ public class NettyServer {
         TcpTransportServer tcpServer = new TcpTransportServer(tcpPort, tcpChannelInitializer);
         tcpServer.start();
         transportServers.add(tcpServer);
+    }
+
+    private void startUdpServer() throws Exception {
+        UdpServerHandler udpServerHandler = new UdpServerHandler(
+                sessionManager, messageProcessor, udpSessionTimeoutSeconds);
+        UdpChannelInitializer udpChannelInitializer = new UdpChannelInitializer(udpServerHandler);
+
+        UdpTransportServer udpServer = new UdpTransportServer(udpPort, udpChannelInitializer);
+        udpServer.start();
+        transportServers.add(udpServer);
     }
 
     @PreDestroy

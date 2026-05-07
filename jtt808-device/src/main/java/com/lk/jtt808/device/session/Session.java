@@ -21,6 +21,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BiConsumer;
 import java.util.function.IntUnaryOperator;
@@ -48,7 +49,7 @@ public class Session implements TransportSession {
     /** 会话创建时间 */
     private final long creationTime;
     /** 最后访问时间 */
-    private long lastAccessedTime;
+    private volatile long lastAccessedTime;
     /** 会话属性存储（线程安全） */
     private final Map<Object, Object> attributes = new ConcurrentHashMap<>();
 
@@ -83,15 +84,14 @@ public class Session implements TransportSession {
     private static class ResponseWaiter {
         private final MonoSink sink;
         private final ScheduledFuture<?> timeoutTask;
-        private volatile boolean completed = false;
+        private final AtomicBoolean completed = new AtomicBoolean(false);
 
         public ResponseWaiter(MonoSink sink, String responseKey,
                               Map<String, ResponseWaiter> awaitingMap,
                               Duration timeout) {
             this.sink = sink;
             this.timeoutTask = timeoutScheduler.schedule(() -> {
-                if (!completed) {
-                    completed = true;
+                if (completed.compareAndSet(false, true)) {
                     awaitingMap.remove(responseKey);
                     sink.error(new TimeoutException("请求超时: " + timeout.toSeconds() + "秒"));
                 }
@@ -99,16 +99,14 @@ public class Session implements TransportSession {
         }
 
         public void complete(Object result) {
-            if (!completed) {
-                completed = true;
+            if (completed.compareAndSet(false, true)) {
                 timeoutTask.cancel(false);
                 sink.success(result);
             }
         }
 
         public void error(Throwable throwable) {
-            if (!completed) {
-                completed = true;
+            if (completed.compareAndSet(false, true)) {
                 timeoutTask.cancel(false);
                 sink.error(throwable);
             }
@@ -154,6 +152,13 @@ public class Session implements TransportSession {
         return sessionId != null;
     }
 
+    /**
+     * 判断设备是否已通过鉴权
+     */
+    public boolean isAuthenticated() {
+        return Boolean.TRUE.equals(getAttribute(com.lk.jtt808.protocol.entity.enums.SessionKey.AUTHENTICATED));
+    }
+
     // ==================== 消息发送相关方法 ====================
 
     @Override
@@ -173,11 +178,25 @@ public class Session implements TransportSession {
 
     @Override
     public <T> Mono<T> sendRequest(JT808Message request, Class<T> responseClass) {
-        return sendRequest(request, responseClass, Duration.ofSeconds(defaultTimeoutSeconds));
+        return sendRequest(request, responseClass, Duration.ofSeconds(defaultTimeoutSeconds), null);
     }
 
     @Override
     public <T> Mono<T> sendRequest(JT808Message request, Class<T> responseClass, Duration timeout) {
+        return sendRequest(request, responseClass, timeout, null);
+    }
+
+    /**
+     * 发送请求并等待响应，支持发送成功回调
+     *
+     * @param request         请求消息
+     * @param responseClass   期望的响应类型
+     * @param timeout         超时时间
+     * @param onSendSuccess   消息成功写入 socket 时的回调（可选）
+     * @param <T>             响应类型
+     * @return Mono<T>
+     */
+    public <T> Mono<T> sendRequest(JT808Message request, Class<T> responseClass, Duration timeout, Runnable onSendSuccess) {
         outBoundInterceptor.accept(this, request);
 
         String responseKey = buildResponseKey(request, responseClass);
@@ -192,7 +211,15 @@ public class Session implements TransportSession {
             }
 
             messageSender.send(request).addListener(future -> {
-                if (!future.isSuccess()) {
+                if (future.isSuccess()) {
+                    if (onSendSuccess != null) {
+                        try {
+                            onSendSuccess.run();
+                        } catch (Exception e) {
+                            log.error("sendRequest onSendSuccess 回调异常", e);
+                        }
+                    }
+                } else {
                     ResponseWaiter removed = awaitingResponses.remove(responseKey);
                     if (removed != null) {
                         removed.error(future.cause());
@@ -312,7 +339,7 @@ public class Session implements TransportSession {
         String className = responseClass.getName();
 
         if (JT808Response.class.isAssignableFrom(responseClass)) {
-            int serialNo = request.getInboundSerialNo();
+            int serialNo = request.getOutboundSerialNo();
             return className + "." + serialNo;
         }
 

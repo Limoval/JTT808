@@ -28,4 +28,46 @@ public class BcdUtil {
         }
         return bcdBytes;
     }
+
+    /**
+     * 将字符串转换为固定长度的BCD编码字节数组。
+     * <p>
+     * 所需数字位数 = byteLength * 2
+     * <ul>
+     *   <li>str 长度不足：前面补零</li>
+     *   <li>str 长度超过所需位数：直接抛出 IllegalArgumentException，不支持截断</li>
+     * </ul>
+     *
+     * @param str        源字符串（纯数字）
+     * @param byteLength 目标字节长度
+     * @return BCD编码字节数组
+     * @throws IllegalArgumentException 包含非数字字符或长度超长
+     */
+    public static byte[] stringToBcd(String str, int byteLength) {
+        if (str == null) {
+            throw new IllegalArgumentException("Input string cannot be null");
+        }
+        int requiredDigits = byteLength * 2;
+        if (str.length() > requiredDigits) {
+            throw new IllegalArgumentException(
+                    "BCD string too long: expected max " + requiredDigits + " digits for " + byteLength
+                            + " bytes, but got " + str.length() + " (value=" + str + ")");
+        }
+        // 校验纯数字
+        for (int i = 0; i < str.length(); i++) {
+            char c = str.charAt(i);
+            if (c < '0' || c > '9') {
+                throw new IllegalArgumentException("BCD string must contain only digits, got: " + str);
+            }
+        }
+        // 前补零
+        String padded = "0".repeat(requiredDigits - str.length()) + str;
+        byte[] bcdBytes = new byte[byteLength];
+        for (int i = 0; i < byteLength; i++) {
+            int high = padded.charAt(2 * i) - '0';
+            int low = padded.charAt(2 * i + 1) - '0';
+            bcdBytes[i] = (byte) ((high << 4) | low);
+        }
+        return bcdBytes;
+    }
 }

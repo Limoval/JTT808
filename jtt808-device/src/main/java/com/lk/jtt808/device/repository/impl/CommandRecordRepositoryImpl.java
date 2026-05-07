@@ -1,13 +1,10 @@
 package com.lk.jtt808.device.repository.impl;
 
-import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.lk.jtt808.common.entity.CommandRecord;
 import com.lk.jtt808.device.mapper.CommandRecordMapper;
 import com.lk.jtt808.device.repository.CommandRecordRepository;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Repository;
-
-import java.time.LocalDateTime;
 
 @Repository
 @Slf4j
@@ -25,18 +22,22 @@ public class CommandRecordRepositoryImpl implements CommandRecordRepository {
             commandRecordMapper.insert(record);
         } catch (Exception e) {
             log.error("保存命令记录失败: deviceId={}", record.getDeviceId(), e);
+            throw e;
         }
     }
 
     @Override
-    public void updateResult(Long commandId, Integer result) {
+    public void updateCommand(CommandRecord record) {
         try {
-            commandRecordMapper.update(null, new LambdaUpdateWrapper<CommandRecord>()
-                    .eq(CommandRecord::getId, commandId)
-                    .set(CommandRecord::getResult, result)
-                    .set(CommandRecord::getResponseTime, LocalDateTime.now()));
+            commandRecordMapper.updateById(record);
         } catch (Exception e) {
-            log.error("更新命令结果失败: commandId={}", commandId, e);
+            log.error("更新命令记录失败: commandId={}", record.getId(), e);
+            throw e;
         }
+    }
+
+    @Override
+    public CommandRecord findById(Long commandId) {
+        return commandRecordMapper.selectById(commandId);
     }
 }

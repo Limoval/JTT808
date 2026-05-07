@@ -21,13 +21,15 @@ public class UdpChannelInitializer extends ChannelInitializer<NioDatagramChannel
     @Override
     protected void initChannel(NioDatagramChannel ch) {
         ch.pipeline()
-                // UDP 帧解码：DatagramPacket → ByteBuf（反转义+校验）
+                // Inbound: UDP 帧解码：DatagramPacket → ByteBuf（反转义+校验）
                 .addLast(new UdpFrameDecoder())
-                // 消息解码：ByteBuf → JT808Message（解析消息头体）
+                // Inbound: 消息解码：ByteBuf → JT808Message（解析消息头体）
                 .addLast(new Jtt808MessageDecoder())
-                // 消息映射：根据消息ID映射到具体消息类
+                // Inbound: 消息映射：根据消息ID映射到具体消息类
                 .addLast(new Jtt808MessageMapping())
-                // UDP 业务处理器
-                .addLast(udpServerHandler);
+                // Inbound: UDP 业务处理器
+                .addLast(udpServerHandler)
+                // Outbound: UDP 出站包装器：UdpOutbound → DatagramPacket（内部包含 JT808 编码）
+                .addLast(new UdpOutboundEncoder());
     }
 }

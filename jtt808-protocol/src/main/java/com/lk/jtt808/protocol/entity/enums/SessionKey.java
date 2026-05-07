@@ -16,5 +16,7 @@ public enum SessionKey {
     /** 协议版本 */
     PROTOCOL_VERSION,
     /** 最后心跳时间 */
-    LAST_HEARTBEAT_TIME
+    LAST_HEARTBEAT_TIME,
+    /** 是否已通过鉴权 */
+    AUTHENTICATED
 }

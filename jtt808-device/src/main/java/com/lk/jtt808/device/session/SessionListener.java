@@ -43,7 +43,7 @@ public class SessionListener {
             }
         }
 
-        log.info("消息预处理完成: clientId={}, messageId={}, outboundSerialNo={}",
+        log.debug("消息预处理完成: clientId={}, messageId={}, outboundSerialNo={}",
             message.getClientId(), message.getMessageId(), message.getOutboundSerialNo());
     };
 
@@ -58,11 +58,12 @@ public class SessionListener {
 
     /**
      * 设备注册成功时的处理
+     * 注意：注册成功不等于鉴权成功，此时设备状态保持 OFFLINE
      */
     public void sessionRegistered(Session session) {
         String clientId = session.getClientId();
         log.info("设备注册成功: clientId={}, address={}", clientId, session.getRemoteAddressStr());
-        handleDeviceOnline(session);
+        // 不在这里更新 ONLINE，鉴权成功后再更新
     }
 
     /**

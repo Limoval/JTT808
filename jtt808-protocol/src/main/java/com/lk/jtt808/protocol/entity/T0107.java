@@ -16,6 +16,9 @@ import java.nio.charset.StandardCharsets;
 @Slf4j
 public class T0107 extends JT808Message implements JT808Response, CustomMapping {
 
+    //应答流水号（对应平台下发的 outboundSerialNo）
+    private int responseSerialNo;
+
     //终端类型
     private int terminalType;
     //制造商ID
@@ -42,6 +45,9 @@ public class T0107 extends JT808Message implements JT808Response, CustomMapping 
     @Override
     public boolean customParse(ByteBuf buf) {
         try {
+            // 解析应答流水号（2字节WORD）
+            this.responseSerialNo = buf.readUnsignedShort();
+
             // 解析固定长度字段
             this.terminalType = buf.readUnsignedShort();
 
@@ -166,7 +172,7 @@ public class T0107 extends JT808Message implements JT808Response, CustomMapping 
 
     @Override
     public int getResponseSerialNo() {
-        return super.getInboundSerialNo();
+        return this.responseSerialNo;
     }
 
     public String toReadableString() {

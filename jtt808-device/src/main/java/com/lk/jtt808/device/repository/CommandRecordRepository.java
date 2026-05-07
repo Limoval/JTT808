@@ -13,7 +13,12 @@ public interface CommandRecordRepository {
     void saveCommand(CommandRecord record);
 
     /**
-     * 更新命令执行结果
+     * 更新命令记录
      */
-    void updateResult(Long commandId, Integer result);
+    void updateCommand(CommandRecord record);
+
+    /**
+     * 查询命令记录
+     */
+    CommandRecord findById(Long commandId);
 }

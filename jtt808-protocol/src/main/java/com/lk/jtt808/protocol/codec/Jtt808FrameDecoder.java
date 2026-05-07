@@ -18,10 +18,10 @@ public class Jtt808FrameDecoder extends ByteToMessageDecoder {
     @Override
     protected void decode(ChannelHandlerContext ctx, ByteBuf in, List<Object> out) {
 
-        ByteBuf copy = in.copy();
-        String hexDump = ByteBufUtil.hexDump(copy);
-        log.info("收到报文：{}", hexDump);
-        copy.release();
+        if (log.isDebugEnabled()) {
+            String hexDump = ByteBufUtil.hexDump(in, in.readerIndex(), in.readableBytes());
+            log.debug("收到报文：{}", hexDump);
+        }
 
         int startIndex = in.indexOf(in.readerIndex(), in.writerIndex(), DELIMITER);
         if (startIndex == -1) return;

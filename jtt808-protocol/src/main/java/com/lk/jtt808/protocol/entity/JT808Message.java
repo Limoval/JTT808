@@ -5,7 +5,8 @@ import lombok.Data;
 @Data
 public class JT808Message {
     private int messageId;          // 消息ID
-    private int protocolVersion;    // 协议版本号
+    private int protocolVersion;    // 协议版本号（2013/2019 枚举语义）
+    private int protocolVersionByte; // 2019头中的1字节协议版本号（如0x01），与 protocolVersion 不混淆
     private String clientId;     // 终端手机号
     private int bodyLength;
     private int encryptionType;

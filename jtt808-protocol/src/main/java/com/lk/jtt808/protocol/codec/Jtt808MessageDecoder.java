@@ -40,7 +40,9 @@ public class Jtt808MessageDecoder extends MessageToMessageDecoder<ByteBuf> {
         try {
             // 解码JT808消息
             JT808Message message = decode(in);
-            log.info("Decoded JT808 message: {}", message);
+            if (log.isDebugEnabled()) {
+                log.debug("Decoded JT808 message: {}", message);
+            }
 
             // 如果解码成功且消息有效，添加到输出列表
             if (message != null) {
@@ -56,22 +58,26 @@ public class Jtt808MessageDecoder extends MessageToMessageDecoder<ByteBuf> {
 
 
     public JT808Message decode(ByteBuf input) {
-
-
         JT808Message message = new JT808Message();
-        int i = input.readUnsignedShort();
-        message.setMessageId(i);
-        message.setVerified(true);
-
-
         try {
-            // 4. 解析消息头
+            if (input.readableBytes() < 2) {
+                throw new IllegalArgumentException("Message too short: missing messageId");
+            }
+            int messageId = input.readUnsignedShort();
+            message.setMessageId(messageId);
+            message.setVerified(true);
+
+            // 解析消息头
             parseHeader(input, message);
 
-            // 5. 解析消息体
+            // 解析消息体
             if (message.isSubpackage()) {
                 // 处理分包消息
-                handleSubpackage(input, message);
+                boolean complete = handleSubpackage(input, message);
+                if (!complete) {
+                    // 分包未完整，不返回消息
+                    return null;
+                }
             } else {
                 // 处理普通消息
                 parseBody(input, message);
@@ -79,12 +85,8 @@ public class Jtt808MessageDecoder extends MessageToMessageDecoder<ByteBuf> {
 
             return message;
         } catch (Exception e) {
-            System.err.println("Error decoding JT808 message: " + e.getMessage());
-            e.printStackTrace();
+            log.error("Error decoding JT808 message: {}", e.getMessage(), e);
             return null;
-        } finally {
-            // 释放反转义后的ByteBuf
-            input.release();
         }
     }
 
@@ -98,43 +100,57 @@ public class Jtt808MessageDecoder extends MessageToMessageDecoder<ByteBuf> {
     private void parseHeader(ByteBuf buf, JT808Message message) {
         // 保存初始读取位置（假设已经读取了消息ID）
         int initialPosition = buf.readerIndex();
+        if (buf.readableBytes() < 2) {
+            throw new IllegalArgumentException("Message too short: missing properties, messageId=0x"
+                    + Integer.toHexString(message.getMessageId()));
+        }
 
-        // 解析消息体属性（绝对读取，不移动指针）
+        // 解析消息体属性（16位）
         int properties = buf.getUnsignedShort(initialPosition);
-        boolean hasVersion = ((properties >> 14) & 0x01) == 0x01;
-        boolean hasSubPackage = ((properties >> 13) & 0x01) == 0x01;
 
-        // 设置读取指针到属性后
+        // 统一位域解析（2013/2019 兼容）
+        int bodyLength = properties & 0x3FF;           // bit0-9: 消息体长度（10位）
+        int encryptionType = (properties >> 10) & 0x07; // bit10-12: 加密方式（3位）
+        boolean subpackage = ((properties >> 13) & 0x01) == 1; // bit13: 分包标志
+        boolean versionFlag = ((properties >> 14) & 0x01) == 1; // bit14: 版本标识（2013=0, 2019=1）
+
+        message.setBodyLength(bodyLength);
+        message.setEncryptionType(encryptionType);
+        message.setSubpackage(subpackage);
+
+        int headerLengthAfterMessageId = 2
+                + (versionFlag ? 1 + 10 + 2 : 6 + 2)
+                + (subpackage ? 4 : 0);
+        int requiredLengthAfterMessageId = headerLengthAfterMessageId + bodyLength + 1;
+        if (buf.readableBytes() < requiredLengthAfterMessageId) {
+            throw new IllegalArgumentException("Message too short: messageId=0x"
+                    + Integer.toHexString(message.getMessageId())
+                    + ", declaredBodyLength=" + bodyLength
+                    + ", requiredAfterMessageId=" + requiredLengthAfterMessageId
+                    + ", actualAfterMessageId=" + buf.readableBytes());
+        }
+
+        // 移动读取指针到属性后
         buf.readerIndex(initialPosition + 2);
 
-        // 根据版本标志处理不同协议版本
-        if (hasVersion) {
-            // 2019版本协议
-
+        if (versionFlag) {
+            // 2019 版本协议
             message.setProtocolVersion(2019);
-            int bodyLength = properties & 0x0FFF; // 消息体长度，12位
-            message.setBodyLength(bodyLength);
-            int encryptionType = (properties >> 10) & 0x07; // 加密方式，3位
-            message.setEncryptionType(encryptionType);
-
-            byte b = buf.readByte();
-            // 读取终端ID（10字节BCD码）
+            // 读取协议版本号（1字节，通常为 0x01）
+            message.setProtocolVersionByte(buf.readUnsignedByte());
+            // 读取终端手机号（10字节BCD码）
             byte[] phoneBytes = new byte[10];
             buf.readBytes(phoneBytes);
-            String clientId = BcdUtil.bcdToString(phoneBytes).replaceFirst("^0+", "");
+            String clientId = BcdUtil.bcdToString(phoneBytes);
             message.setClientId(clientId);
         } else {
-            // 2013版本协议
+            // 2013 版本协议
             message.setProtocolVersion(2013);
-            int bodyLength = properties & 0x3FF; // 消息体长度，10位
-            message.setBodyLength(bodyLength);
-            int encryptionType = (properties >> 10) & 0x03; // 加密方式，2位
-            message.setEncryptionType(encryptionType);
-
+            message.setProtocolVersionByte(0);
             // 读取终端手机号（6字节BCD码）
             byte[] phoneBytes = new byte[6];
             buf.readBytes(phoneBytes);
-            String clientId = BcdUtil.bcdToString(phoneBytes).replaceFirst("^0+", "");
+            String clientId = BcdUtil.bcdToString(phoneBytes);
             message.setClientId(clientId);
         }
 
@@ -142,7 +158,7 @@ public class Jtt808MessageDecoder extends MessageToMessageDecoder<ByteBuf> {
         message.setInboundSerialNo(buf.readUnsignedShort());
 
         // 分包处理
-        if (hasSubPackage) {
+        if (subpackage) {
             message.setTotalPackage(buf.readUnsignedShort());
             message.setPackageIndex(buf.readUnsignedShort());
         }
@@ -156,7 +172,8 @@ public class Jtt808MessageDecoder extends MessageToMessageDecoder<ByteBuf> {
      * @param message 消息对象
      */
     private void parseBody(ByteBuf buf, JT808Message message) {
-        int bodyLength = buf.readableBytes() - 1; // 减去校验码1字节
+        int bodyLength = message.getBodyLength();
+        validateBodyLength(buf, message);
         if (bodyLength > 0) {
             byte[] bodyData = new byte[bodyLength];
             buf.readBytes(bodyData);
@@ -171,17 +188,22 @@ public class Jtt808MessageDecoder extends MessageToMessageDecoder<ByteBuf> {
      *
      * @param buf ByteBuf数据
      * @param message 消息对象
+     * @return true 表示所有分包已收齐并合并完成；false 表示还需等待后续分包
      */
-    private void handleSubpackage(ByteBuf buf, JT808Message message) {
-        // 读取分包消息体
-        int bodyLength = buf.readableBytes() - 1; // 减去校验码1字节
-        if (bodyLength <= 0) {
-            message.setMessageBody(new byte[0]);
-            return;
+    private boolean handleSubpackage(ByteBuf buf, JT808Message message) {
+        if (message.getTotalPackage() <= 0
+                || message.getPackageIndex() <= 0
+                || message.getPackageIndex() > message.getTotalPackage()) {
+            throw new IllegalArgumentException("Invalid subpackage header: total="
+                    + message.getTotalPackage() + ", index=" + message.getPackageIndex());
         }
 
+        int bodyLength = message.getBodyLength();
+        validateBodyLength(buf, message);
         byte[] bodyData = new byte[bodyLength];
-        buf.readBytes(bodyData);
+        if (bodyLength > 0) {
+            buf.readBytes(bodyData);
+        }
 
         // 缓存分包
         String key = message.getClientId() + "_" + message.getInboundSerialNo();
@@ -199,6 +221,9 @@ public class Jtt808MessageDecoder extends MessageToMessageDecoder<ByteBuf> {
                 if (pack != null) {
                     packages.add(pack);
                     totalLength += pack.length;
+                } else {
+                    log.warn("分包缺失: key={}, missing packageIndex={}", key, i);
+                    return false;
                 }
             }
 
@@ -215,9 +240,28 @@ public class Jtt808MessageDecoder extends MessageToMessageDecoder<ByteBuf> {
 
             // 清理缓存
             packageCache.invalidate(key);
+            return true;
         } else {
-            // 还未收到所有分包，设置空消息体
-            message.setMessageBody(null);
+            // 还未收到所有分包，不设置消息体，返回 false 表示未完整
+            if (log.isDebugEnabled()) {
+                log.debug("分包等待中: key={}, received={}/{}", key, packageMap.size(), message.getTotalPackage());
+            }
+            return false;
+        }
+    }
+
+    private void validateBodyLength(ByteBuf buf, JT808Message message) {
+        int expectedLength = message.getBodyLength();
+        int readableWithoutChecksum = buf.readableBytes() - 1;
+        if (readableWithoutChecksum < 0) {
+            throw new IllegalArgumentException("Missing checksum byte: messageId=0x"
+                    + Integer.toHexString(message.getMessageId()));
+        }
+        if (readableWithoutChecksum != expectedLength) {
+            throw new IllegalArgumentException("Message body length mismatch: messageId=0x"
+                    + Integer.toHexString(message.getMessageId())
+                    + ", declared=" + expectedLength
+                    + ", actual=" + readableWithoutChecksum);
         }
     }
 

@@ -8,6 +8,8 @@ import com.lk.jtt808.device.transport.tcp.TcpMessageSender;
 import io.netty.channel.Channel;
 import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.util.Collection;
@@ -30,14 +32,19 @@ public class SessionManager {
     /** 会话生命周期监听器 */
     private final SessionListener sessionListener;
 
+    /** 心跳超时时间（毫秒） */
+    private final long heartbeatTimeoutMillis;
+
     // ==================== 统计指标 ====================
     private final java.util.concurrent.atomic.AtomicLong totalConnections = new java.util.concurrent.atomic.AtomicLong(0);
     private final java.util.concurrent.atomic.AtomicLong totalDisconnections = new java.util.concurrent.atomic.AtomicLong(0);
     private final java.util.concurrent.atomic.AtomicLong authFailures = new java.util.concurrent.atomic.AtomicLong(0);
 
-    public SessionManager(SessionListener sessionListener) {
+    public SessionManager(SessionListener sessionListener,
+                          @Value("${jtt808.heartbeat-interval:60}") long heartbeatIntervalSeconds) {
         this.sessionRegistry = new ConcurrentHashMap<>();
         this.sessionListener = sessionListener;
+        this.heartbeatTimeoutMillis = (heartbeatIntervalSeconds * 2 + 10) * 1000L;
 
         this.offlineDataCache = Caffeine.newBuilder()
                 .expireAfterAccess(10, TimeUnit.MINUTES)
@@ -116,12 +123,40 @@ public class SessionManager {
     public Collection<Session> getOnlineSessions() {
         return sessionRegistry.values().stream()
                 .filter(Session::isRegistered)
+                .filter(Session::isAuthenticated)
                 .collect(Collectors.toList());
     }
 
     public boolean isDeviceOnline(String clientId) {
         Session session = sessionRegistry.get(clientId);
-        return session != null && session.isRegistered();
+        return session != null && session.isRegistered() && session.isAuthenticated();
+    }
+
+    // ==================== 心跳超时会话清理 ====================
+
+    /**
+     * 定时清理超时会话（每60秒执行一次）
+     */
+    @Scheduled(fixedRate = 60000)
+    public void cleanupTimeoutSessions() {
+        long now = System.currentTimeMillis();
+        int cleaned = 0;
+
+        for (Session session : sessionRegistry.values()) {
+            if (session.isRegistered() && session.isAuthenticated()) {
+                long lastAccessed = session.getLastAccessedTime();
+                if ((now - lastAccessed) > heartbeatTimeoutMillis) {
+                    log.warn("会话心跳超时，强制清理: clientId={}, idle={}ms",
+                            session.getClientId(), (now - lastAccessed));
+                    session.invalidate();
+                    cleaned++;
+                }
+            }
+        }
+
+        if (cleaned > 0) {
+            log.info("心跳超时会话清理完成: 清理 {} 个会话", cleaned);
+        }
     }
 
     // ==================== 离线缓存管理 ====================
@@ -181,6 +216,7 @@ public class SessionManager {
     public int getOnlineCount() {
         return (int) sessionRegistry.values().stream()
                 .filter(Session::isRegistered)
+                .filter(Session::isAuthenticated)
                 .count();
     }
 

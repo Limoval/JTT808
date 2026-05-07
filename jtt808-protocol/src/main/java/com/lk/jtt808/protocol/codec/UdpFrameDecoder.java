@@ -29,7 +29,9 @@ public class UdpFrameDecoder extends MessageToMessageDecoder<DatagramPacket> {
         ByteBuf content = packet.content();
         InetSocketAddress sender = packet.sender();
 
-        log.info("UDP收到报文: sender={}, hex={}", sender, ByteBufUtil.hexDump(content));
+        if (log.isDebugEnabled()) {
+            log.debug("UDP收到报文: sender={}, hex={}", sender, ByteBufUtil.hexDump(content));
+        }
 
         // 存储发送者地址到 Channel Attribute
         ctx.channel().attr(SENDER_KEY).set(sender);
