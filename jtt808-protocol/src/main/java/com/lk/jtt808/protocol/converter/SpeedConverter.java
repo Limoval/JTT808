@@ -10,13 +10,15 @@ import io.netty.buffer.ByteBuf;
 public class SpeedConverter implements FieldConverter {
     @Override
     public Object decode(ByteBuf buf, FieldMetadata fieldMetadata) {
-        int i = buf.readUnsignedShort();
-        return i / 10.0;
+        return buf.readUnsignedShort();
     }
 
     @Override
     public void encode(ByteBuf buf, Object value, FieldMetadata fieldMetadata) {
         int intValue = ((Number) value).intValue();
-        buf.writeShort(intValue * 10);
+        if (intValue < 0 || intValue > 0xFFFF) {
+            throw new IllegalArgumentException("Speed value out of range: " + intValue);
+        }
+        buf.writeShort(intValue);
     }
 }

@@ -39,15 +39,20 @@ public class MessageConverter {
             DataType dataType = fm.getDataType();
             switch (dataType) {
                 case BYTE:
+                    ensureReadable(buf, 1, fm);
                     fm.getField().set(instance, buf.readUnsignedByte());
                     break;
                 case WORD:
+                    ensureReadable(buf, 2, fm);
                     fm.getField().set(instance, buf.readUnsignedShort());
                     break;
                 case DWORD:
+                    ensureReadable(buf, 4, fm);
                     fm.getField().set(instance, buf.readUnsignedInt());
                     break;
                 case BCD:
+                    ensurePositiveLength(fm);
+                    ensureReadable(buf, fm.getLength(), fm);
                     fm.getField().set(instance, readBcd(buf, fm.getLength()));
                     break;
                 case STRING:
@@ -56,7 +61,14 @@ public class MessageConverter {
                 case BYTES:
                     fm.getField().set(instance, readBytes(buf, fm.getLength()));
                     break;
+                default:
+                    throw new UnsupportedOperationException("Unsupported field type for annotation parsing: "
+                            + dataType + ", field=" + fm.getField().getName());
             }
+        }
+        if (buf.isReadable()) {
+            throw new IllegalArgumentException("Unread bytes remain after parsing "
+                    + clazz.getSimpleName() + ": " + buf.readableBytes());
         }
         return instance;
     }
@@ -69,11 +81,13 @@ public class MessageConverter {
 
     private static String readString(ByteBuf buf, int length, String charset) {
         int len = length > 0 ? length : buf.readableBytes();
+        ensureReadable(buf, len, null);
         return buf.readCharSequence(len, Charset.forName(charset)).toString();
     }
 
     private static byte[] readBytes(ByteBuf buf, int length) {
         int len = length > 0 ? length : buf.readableBytes();
+        ensureReadable(buf, len, null);
         byte[] bytes = new byte[len];
         buf.readBytes(bytes);
         return bytes;
@@ -107,8 +121,10 @@ public class MessageConverter {
         for (FieldMetadata fm : metadata.getOrderedFields()) {
             Object fieldValue = fm.getField().get(msg);
 
-            // 跳过null值字段
-            if (fieldValue == null) continue;
+            if (fieldValue == null) {
+                throw new IllegalArgumentException("Required field cannot be null: "
+                        + msg.getClass().getSimpleName() + "." + fm.getField().getName());
+            }
 
             // 使用缓存的转换器
             if (fm.hasCustomConverter()) {
@@ -141,13 +157,13 @@ public class MessageConverter {
                     writeDWord(bodyBuf, fieldValue);
                     break;
                 case BCD:
-                    writeBcd(bodyBuf, fieldValue);
+                    writeBcd(bodyBuf, fieldValue, fm);
                     break;
                 case STRING:
-                    writeString(bodyBuf, fieldValue, fm.getCharset());
+                    writeString(bodyBuf, fieldValue, fm.getLength(), fm.getCharset());
                     break;
                 case BYTES:
-                    writeBytes(bodyBuf, fieldValue);
+                    writeBytes(bodyBuf, fieldValue, fm);
                     break;
                 default:
                     throw new UnsupportedOperationException("Unsupported field type: " + fm.getDataType());
@@ -161,12 +177,14 @@ public class MessageConverter {
      * 写入字节值
      */
     private static void writeByte(ByteBuf bodyBuf, Object value) {
-        if (value instanceof Integer) {
-            bodyBuf.writeByte((Integer) value);
-        } else if (value instanceof Byte) {
-            bodyBuf.writeByte((Byte) value);
+        if (value instanceof Number number) {
+            int intValue = number.intValue();
+            if (intValue < 0 || intValue > 0xFF) {
+                throw new IllegalArgumentException("BYTE value out of range: " + intValue);
+            }
+            bodyBuf.writeByte(intValue);
         } else {
-            throw new IllegalArgumentException("BYTE field must be Integer or Byte type, but got: " +
+            throw new IllegalArgumentException("BYTE field must be Number type, but got: " +
                     value.getClass().getSimpleName());
         }
     }
@@ -175,12 +193,14 @@ public class MessageConverter {
      * 写入短整型值
      */
     private static void writeWord(ByteBuf bodyBuf, Object value) {
-        if (value instanceof Integer) {
-            bodyBuf.writeShort((Integer) value);
-        } else if (value instanceof Short) {
-            bodyBuf.writeShort((Short) value);
+        if (value instanceof Number number) {
+            int intValue = number.intValue();
+            if (intValue < 0 || intValue > 0xFFFF) {
+                throw new IllegalArgumentException("WORD value out of range: " + intValue);
+            }
+            bodyBuf.writeShort(intValue);
         } else {
-            throw new IllegalArgumentException("WORD field must be Integer or Short type, but got: " +
+            throw new IllegalArgumentException("WORD field must be Number type, but got: " +
                     value.getClass().getSimpleName());
         }
     }
@@ -189,17 +209,14 @@ public class MessageConverter {
      * 写入双字值
      */
     private static void writeDWord(ByteBuf bodyBuf, Object value) {
-        if (value instanceof Integer) {
-            bodyBuf.writeInt((Integer) value);
-        } else if (value instanceof Long) {
-            // 处理长整型，但需要检查范围
-            long longValue = (Long) value;
-            if (longValue > Integer.MAX_VALUE || longValue < Integer.MIN_VALUE) {
+        if (value instanceof Number number) {
+            long longValue = number.longValue();
+            if (longValue < 0 || longValue > 0xFFFF_FFFFL) {
                 throw new IllegalArgumentException("DWORD value out of range: " + longValue);
             }
             bodyBuf.writeInt((int) longValue);
         } else {
-            throw new IllegalArgumentException("DWORD field must be Integer or Long type, but got: " +
+            throw new IllegalArgumentException("DWORD field must be Number type, but got: " +
                     value.getClass().getSimpleName());
         }
     }
@@ -207,14 +224,15 @@ public class MessageConverter {
     /**
      * 写入BCD编码字符串
      */
-    private static void writeBcd(ByteBuf bodyBuf, Object value) {
+    private static void writeBcd(ByteBuf bodyBuf, Object value, FieldMetadata fm) {
         if (!(value instanceof String bcdString)) {
             throw new IllegalArgumentException("BCD field must be String type, but got: " +
                     value.getClass().getSimpleName());
         }
 
+        ensurePositiveLength(fm);
         try {
-            byte[] bcdBytes = BcdUtil.stringToBcd(bcdString);
+            byte[] bcdBytes = BcdUtil.stringToBcd(bcdString, fm.getLength());
             bodyBuf.writeBytes(bcdBytes);
         } catch (Exception e) {
             throw new RuntimeException("Failed to encode BCD string: " + bcdString, e);
@@ -224,7 +242,7 @@ public class MessageConverter {
     /**
      * 写入字符串
      */
-    private static void writeString(ByteBuf bodyBuf, Object value, String charsetName) {
+    private static void writeString(ByteBuf bodyBuf, Object value, int length, String charsetName) {
         if (!(value instanceof String stringValue)) {
             throw new IllegalArgumentException("STRING field must be String type, but got: " +
                     value.getClass().getSimpleName());
@@ -232,7 +250,20 @@ public class MessageConverter {
 
         try {
             Charset charset = Charset.forName(charsetName);
-            bodyBuf.writeCharSequence(stringValue, charset);
+            byte[] bytes = stringValue.getBytes(charset);
+            if (length > 0) {
+                if (bytes.length > length) {
+                    throw new IllegalArgumentException("STRING field too long: field="
+                            + value.getClass().getSimpleName() + ", expectedBytes=" + length
+                            + ", actualBytes=" + bytes.length);
+                }
+                bodyBuf.writeBytes(bytes);
+                if (bytes.length < length) {
+                    bodyBuf.writeZero(length - bytes.length);
+                }
+            } else {
+                bodyBuf.writeBytes(bytes);
+            }
         } catch (Exception e) {
             throw new RuntimeException("Failed to encode string with charset: " + charsetName, e);
         }
@@ -241,13 +272,45 @@ public class MessageConverter {
     /**
      * 写入字节数组
      */
-    private static void writeBytes(ByteBuf bodyBuf, Object value) {
+    private static void writeBytes(ByteBuf bodyBuf, Object value, FieldMetadata fm) {
         if (!(value instanceof byte[] bytes)) {
             throw new IllegalArgumentException("BYTES field must be byte[] type, but got: " +
                     value.getClass().getSimpleName());
         }
 
-        bodyBuf.writeBytes(bytes);
+        int length = fm.getLength();
+        if (length > 0) {
+            if (bytes.length > length) {
+                throw new IllegalArgumentException("BYTES field too long: field="
+                        + fm.getField().getName() + ", expectedBytes=" + length
+                        + ", actualBytes=" + bytes.length);
+            }
+            bodyBuf.writeBytes(bytes);
+            if (bytes.length < length) {
+                bodyBuf.writeZero(length - bytes.length);
+            }
+        } else {
+            bodyBuf.writeBytes(bytes);
+        }
+    }
+
+    private static void ensureReadable(ByteBuf buf, int requiredBytes, FieldMetadata fm) {
+        if (requiredBytes < 0) {
+            throw new IllegalArgumentException("Required bytes cannot be negative: " + requiredBytes);
+        }
+        if (buf.readableBytes() < requiredBytes) {
+            String fieldName = fm == null ? "<dynamic>" : fm.getField().getName();
+            throw new IllegalArgumentException("Insufficient readable bytes for field " + fieldName
+                    + ": required=" + requiredBytes + ", actual=" + buf.readableBytes());
+        }
+    }
+
+    private static void ensurePositiveLength(FieldMetadata fm) {
+        if (fm.getLength() <= 0) {
+            throw new IllegalArgumentException("Field requires positive fixed length: "
+                    + fm.getField().getName() + ", type=" + fm.getDataType()
+                    + ", length=" + fm.getLength());
+        }
     }
 
 }
